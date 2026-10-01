@@ -217,6 +217,51 @@ manager», `https://www.bttr-software.de/forum/mix_entry.php?id=3628`):
 Japheth напрямую** (в issue #1 или письмом) о разрешении на форк с
 изменениями и их распространение; решение и вопрос — на владельце.
 
+### 5.1. Проверка 2026-10-01: ответ автора найден
+
+**Установлено** (`gh api`, ссылки ниже; все цитаты дословные):
+
+- Issue [#66](https://github.com/Baron-von-Riedesel/HX/issues/66) «Commercial
+  usage allowed?», 03.06.2026, ответ Japheth (`Baron-von-Riedesel`): «Yes, so
+  long as it isn't modified.» То есть использование неизменённого HX
+  разрешено, изменение — нет (во всяком случае не разрешено явно).
+- PR [#69](https://github.com/Baron-von-Riedesel/HX/pull/69) «Added the MIT
+  license» (leiradel, 15.07.2026, не влит, открыт), комментарий Japheth
+  17.07.2026: «There's already a "derivative" variant of HDPMI32i, created by
+  crazii and used by SBEMU. It's incompatible with the standard HDPMI. The
+  prospect of dozens "improved" variants emerging isn't something I want to
+  encourage...» Лицензию он по-прежнему не выбрал; на 2026-10-01 в корне
+  репозитория нет файла лицензии.
+- Issue [#1](https://github.com/Baron-von-Riedesel/HX/issues/1) (лицензия, 17
+  комментариев, последний 04.08.2022, открыт), [#8](https://github.com/Baron-von-Riedesel/HX/issues/8)
+  «Distribution of HX DOS Extender» (вопрос, можно ли изменять и включать
+  изменённый HX в открытое ПО, 22.06.2020; без ответа), [#67](https://github.com/Baron-von-Riedesel/HX/issues/67)
+  («bus factor», ответ без касательства к лицензии).
+- Форки `Baron-von-Riedesel/HX` (`gh api repos/Baron-von-Riedesel/HX/forks`, 21
+  форк): ни у одного нет лицензии (`license: null`); с изменениями — только
+  `crazii/HX` (47 коммитов вперёд, последний 2024-03-01; описание «IO port
+  trapping of HDPMI», та самая несовместимая ветка HDPMI32i для SBEMU);
+  `leiradel/HX` — ветка PR #69; остальные совпадают с оригиналом или отстают от него.
+- Форк `unxed/HX`: публичный, лицензии нет, `gh api repos/unxed/HX/compare/Baron-von-Riedesel:master...unxed:master`
+  — `identical` (0 вперёд, 0 назад; вершина v2.24pre1, 2026-05-31), то есть своих
+  изменений в нём нет. Оставлен как есть.
+- Как связаться с автором: адреса электронной почты нет ни в `HXsrc.txt`,
+  `Readme.txt`, исходниках, ни в `DOC/*.TXT` пакета HXRT 2.23, ни в профиле GitHub
+  `Baron-von-Riedesel` (поле почты пусто); сайт `japheth.de` на 2026-10-01 отвечает
+  «Sorry, the website has been stopped». Работающий канал — issues/PR в
+  `Baron-von-Riedesel/HX` (автор отвечает там в июне–июле 2026) и форум
+  bttr-software (`https://www.bttr-software.de/forum/`, где он писал в 2008–2009).
+
+**Что из этого следует для go2dos** (вывод, не юридическое заключение): пока
+автор не разрешил явно, мы **не распространяем изменённый HX** — ни форк, ни
+изменённые бинарники. Неизменённые релизные пакеты (`HXRT*.zip`) использовать
+можно. Вопрос, допустимо ли распространять только патчи к оригиналу, автору не
+задан и ответа нет; патчей к HX у проекта на 2026-10-01 нет, поэтому каталога
+`third_party/hx-patches/` и скрипта применения не создано. Прежнее решение
+DESIGN §20 п. 3 («изменения HX живут в форке») этим уточнено: форк можно держать
+только как зеркало без изменений. Вопрос автору — тикет в `unxed/go2dos`
+(«HX: ask Japheth …»).
+
 ## 6. Чего не хватает в go2dos для HX
 
 **Установлено** по требованиям HX (`DOC/HDPMI.TXT` §1–2; `SrcEmu/DKRNL32/DKRNL32.TXT`
