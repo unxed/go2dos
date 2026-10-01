@@ -55,4 +55,5 @@ Norton Commander в тестах не используется; как пров�
 - [DOUBTS.md](docs/DOUBTS.md) — сомнения и расследования
 - [UTF8NAMES.md](docs/UTF8NAMES.md) — API UTF-8 имён файлов для DOS (черновик)
 - [WASI-BRIDGE.md](docs/WASI-BRIDGE.md) — мост DOS → WASI: решение и план
+- [DN-PLAN.md](docs/DN-PLAN.md) — Dos Navigator: аудит Turbo Vision, переработка, отдельная TV
 - [NC-TESTING.md](docs/NC-TESTING.md) — проверка Norton Commander
