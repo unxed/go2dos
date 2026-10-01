@@ -112,6 +112,12 @@ func (d *DOS) exec(e *hle.Env) error {
 	tailPtr := m.R32(pb + 2)
 	fcb1, fcb2 := m.R32(pb+6), m.R32(pb+10)
 	im, errc := d.readImage(name)
+	if errc == errFileNotFound {
+		// No COMMAND.COM file: the built-in interpreter (shell.go).
+		if b := d.builtinShell(name); b != nil {
+			im, errc = b, 0
+		}
+	}
 	if errc != 0 {
 		d.fail(e, errc)
 		return nil

@@ -90,6 +90,8 @@ type DOS struct {
 	anyFault  bool
 	errorMode bool // INT 24h is running
 	crit      critState
+	shells    map[uint16]*shellState // built-in COMMAND.COM instances by PSP (shell.go)
+	shellTrap uint16
 	int21Off  uint16 // stub of INT 21h itself
 	critStub  uint16 // ROM stub that continues a call after INT 24h
 	cc        []ccState
@@ -166,6 +168,8 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 	// INT 24h by default: the kernel handler always answers Fail (RBIL Int 24).
 	e.HookInt(0x24, "int24", func(e *hle.Env) error { e.CPU.SetAL(3); return nil })
 	d.installCrit(e)
+	d.shells = map[uint16]*shellState{}
+	d.shellTrap = e.Register("shell", d.shellStep)
 	e.HookInt(0x25, "int25", func(e *hle.Env) error { return hle.Unsupported("INT 25h absolute disk read") })
 	e.HookInt(0x26, "int26", func(e *hle.Env) error { return hle.Unsupported("INT 26h absolute disk write") })
 	e.HookInt(0x27, "int27", d.int27)
@@ -572,7 +576,8 @@ func (d *DOS) fcbDriveStatus(psp uint16) uint16 {
 	var r uint16
 	for i, off := range []uint32{0x5C, 0x6C} {
 		drv := d.e.Mem.R8(mem.Lin(psp, 0) + off)
-		if drv != 0 && d.fs.drives[drv-1] == "" {
+		// AL=FFh for a drive letter that is not mapped (a byte above 26 is no drive).
+		if drv != 0 && (drv > lastDrive || d.fs.drives[drv-1] == "") {
 			r |= 0xFF << (8 * i)
 		}
 	}
@@ -598,6 +603,7 @@ func (d *DOS) terminateAs(code, typ byte) {
 	keep := typ == 3
 	d.errorMode = false
 	d.cc = nil
+	delete(d.shells, d.psp)
 	d.exit = code
 	d.exitType = typ
 	if d.endChild(code, keep) {

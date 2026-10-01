@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,7 +15,127 @@ import (
 	"github.com/unxed/go2dos/cp"
 	"github.com/unxed/go2dos/keys"
 	"github.com/unxed/go2dos/machine"
+
+	"golang.org/x/term"
 )
+
+// termHost is the plain ANSI terminal front end (frontend.Host and
+// frontend.Console).
+type termHost struct {
+	rend *renderer
+	sel  *selectionHandler
+	m    *machine.Machine
+}
+
+func newTermHost(w io.Writer) *termHost {
+	return &termHost{
+		rend: newRenderer(w),
+		sel:  newSelectionHandler(),
+	}
+}
+
+func (h *termHost) Draw(s *bios.Screen) {
+	h.rend.draw(s)
+	h.sel.updateScreen(s)
+}
+func (h *termHost) Stream(b []byte, page *cp.Codepage) { h.rend.stream(b, page) }
+func (h *termHost) Display(grid bool)                  { h.rend.display(grid) }
+
+func (h *termHost) Start(m *machine.Machine, display string, stop func(dump bool)) (func(), error) {
+	h.m = m
+	h.sel.updateScreen(m.Screen())
+	restore, err := setupTerminal(display != "console")
+	if err != nil {
+		return nil, err
+	}
+	p := &inputParser{
+		page: m.CP,
+		push: func(ke bios.KeyEvent) {
+			// Handle terminal integration (Shift+Arrow, Ctrl-V)
+			if !h.handleTerminalIntegration(ke) {
+				m.PushKey(ke)
+			}
+		},
+		cmd: func(c termCmd) { stop(c == cmdDump) },
+	}
+	go p.run(os.Stdin)
+	return restore, nil
+}
+
+// handleTerminalIntegration processes terminal integration keys (Shift+Arrow for selection, Ctrl-V for paste).
+// Returns true if the key was handled, false if it should be passed to the machine.
+func (h *termHost) handleTerminalIntegration(ke bios.KeyEvent) bool {
+	scr := h.m.Screen()
+
+	// Shift+Arrow keys for text selection
+	switch ke.Scan {
+	case 0x48: // Up arrow
+		if ke.Mods&bios.ModLShift != 0 {
+			if !h.sel.isActive() {
+				h.sel.toggleSelectionMode()
+				h.sel.startSelection(scr.CursorX, scr.CursorY)
+			}
+			h.sel.extendSelection(scr.CursorX, scr.CursorY-1)
+			return true
+		}
+	case 0x50: // Down arrow
+		if ke.Mods&bios.ModLShift != 0 {
+			if !h.sel.isActive() {
+				h.sel.toggleSelectionMode()
+				h.sel.startSelection(scr.CursorX, scr.CursorY)
+			}
+			h.sel.extendSelection(scr.CursorX, scr.CursorY+1)
+			return true
+		}
+	case 0x4B: // Left arrow
+		if ke.Mods&bios.ModLShift != 0 {
+			if !h.sel.isActive() {
+				h.sel.toggleSelectionMode()
+				h.sel.startSelection(scr.CursorX, scr.CursorY)
+			}
+			h.sel.extendSelection(scr.CursorX-1, scr.CursorY)
+			return true
+		}
+	case 0x4D: // Right arrow
+		if ke.Mods&bios.ModLShift != 0 {
+			if !h.sel.isActive() {
+				h.sel.toggleSelectionMode()
+				h.sel.startSelection(scr.CursorX, scr.CursorY)
+			}
+			h.sel.extendSelection(scr.CursorX+1, scr.CursorY)
+			return true
+		}
+	}
+
+	// ESC to end selection
+	if ke.Scan == 0x01 && ke.Mods == 0 { // ESC
+		if h.sel.isActive() {
+			h.sel.endSelection()
+			return true
+		}
+	}
+
+	return false
+}
+
+func setupTerminal(alt bool) (func(), error) {
+	fd := int(os.Stdin.Fd())
+	st, err := term.MakeRaw(fd)
+	if err != nil {
+		return nil, err
+	}
+	undoVT := enableVT()
+	if alt {
+		fmt.Print("\x1b[?1049h\x1b[2J")
+	}
+	return func() {
+		if alt {
+			fmt.Print("\x1b[0m\x1b[?25h\x1b[?1049l")
+		}
+		undoVT()
+		term.Restore(fd, st)
+	}, nil
+}
 
 // renderer draws screen snapshots on an ANSI terminal, sending only the
 // cells that changed since the previous frame.

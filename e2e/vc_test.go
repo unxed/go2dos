@@ -34,6 +34,13 @@ func session(t *testing.T, version, script string) (*machine.Machine, error) {
 // sessionFiles is session with extra files (name -> content) in the drive.
 func sessionFiles(t *testing.T, version, script string, extra map[string]string) (*machine.Machine, error) {
 	t.Helper()
+	m, err, _ := sessionDir(t, version, script, extra)
+	return m, err
+}
+
+// sessionDir is sessionFiles that also returns the host directory of drive C:.
+func sessionDir(t *testing.T, version, script string, extra map[string]string) (*machine.Machine, error, string) {
+	t.Helper()
 	src := vcDir(t, version)
 	dir := t.TempDir()
 	entries, err := os.ReadDir(src)
@@ -72,7 +79,7 @@ func sessionFiles(t *testing.T, version, script string, extra map[string]string)
 	if err := <-scriptErr; err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("script: %v\nmachine: %v", err, runErr)
 	}
-	return m, runErr
+	return m, runErr, dir
 }
 
 func TestVC405PanelsAndQuit(t *testing.T) {
