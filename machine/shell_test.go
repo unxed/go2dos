@@ -346,3 +346,34 @@ func TestShellDelToTrash(t *testing.T) {
 		t.Error("the file is still in the drive")
 	}
 }
+
+// With -trash the shell's COPY and ">" first save the contents they overwrite.
+func TestShellOverwriteSavedToTrash(t *testing.T) {
+	trash := filepath.Join(t.TempDir(), "bin")
+	_, _, dir := runShellCfg(t, Config{TrashDir: trash}, " /C T.BAT", map[string]string{
+		"T.BAT":   "copy new.txt old.txt\r\necho redirected> red.txt\r\n",
+		"new.txt": "NEW", "old.txt": "OLD", "red.txt": "RED"})
+	if b, _ := os.ReadFile(filepath.Join(dir, "old.txt")); string(b) != "NEW" {
+		t.Errorf("old.txt now %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(trash, "old.txt")); string(b) != "OLD" {
+		t.Errorf("trash/old.txt %q, want OLD", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(trash, "red.txt")); string(b) != "RED" {
+		t.Errorf("trash/red.txt %q, want RED", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "red.txt")); !strings.HasPrefix(string(b), "redirected") {
+		t.Errorf("red.txt now %q", b)
+	}
+}
+
+// COPY of a file onto itself is refused; it used to truncate the file.
+func TestShellCopyOntoItself(t *testing.T) {
+	_, text, dir := runShell(t, ` /C COPY "Long Doc.txt" LONGDO~1.TXT`, map[string]string{"Long Doc.txt": "keep me"})
+	if b, _ := os.ReadFile(filepath.Join(dir, "Long Doc.txt")); string(b) != "keep me" {
+		t.Errorf("the file was damaged: %q; screen:\n%s", b, text)
+	}
+	if !strings.Contains(text, "cannot be copied onto itself") {
+		t.Errorf("screen:\n%s", text)
+	}
+}

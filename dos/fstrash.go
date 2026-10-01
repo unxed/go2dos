@@ -17,6 +17,21 @@ import (
 // be moved, it is NOT deleted (the call fails with "access denied"). A file that is
 // already inside DIR is really removed (emptying the trash from DOS works). Directories
 // are not moved: DOS removes only empty ones.
+//
+// The built-in shell also saves a file that COPY or ">" is about to overwrite: a copy of
+// the old contents goes to the trash first (saveOverwritten).
+
+// saveOverwritten copies an existing regular file to the trash before the shell's COPY or
+// redirection truncates it. Without a trash, or for a file in the trash, nothing is done.
+func (f *fsys) saveOverwritten(host string) error {
+	if f.trash == "" || f.inTrash(host) {
+		return nil
+	}
+	if st, err := os.Stat(host); err != nil || !st.Mode().IsRegular() {
+		return nil
+	}
+	return f.stash(host, false)
+}
 
 const trashLog = "go2dos-trash.log"
 
@@ -25,7 +40,7 @@ func (f *fsys) remove(host string) error {
 	if f.trash == "" || f.inTrash(host) {
 		return os.Remove(host)
 	}
-	return f.toTrash(host)
+	return f.stash(host, true)
 }
 
 func (f *fsys) inTrash(host string) bool {
@@ -33,7 +48,9 @@ func (f *fsys) inTrash(host string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func (f *fsys) toTrash(host string) error {
+// stash puts the file in the trash: moved (delete) or copied (the original is about to be
+// overwritten, and stays until then).
+func (f *fsys) stash(host string, move bool) error {
 	if err := os.MkdirAll(f.trash, 0o777); err != nil {
 		return err
 	}
@@ -48,16 +65,21 @@ func (f *fsys) toTrash(host string) error {
 		}
 		dst = filepath.Join(f.trash, fmt.Sprintf("%s.~%d", base, n))
 	}
-	if err := os.Rename(host, dst); err != nil {
-		// Another file system: copy, then remove the original.
-		if err := copyFile(host, dst); err != nil {
-			os.Remove(dst)
-			return err
+	if move {
+		if err := os.Rename(host, dst); err != nil {
+			// Another file system: copy, then remove the original.
+			if err := copyFile(host, dst); err != nil {
+				os.Remove(dst)
+				return err
+			}
+			if err := os.Remove(host); err != nil {
+				os.Remove(dst)
+				return err
+			}
 		}
-		if err := os.Remove(host); err != nil {
-			os.Remove(dst)
-			return err
-		}
+	} else if err := copyFile(host, dst); err != nil {
+		os.Remove(dst)
+		return err
 	}
 	if l, err := os.OpenFile(filepath.Join(f.trash, trashLog), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666); err == nil {
 		fmt.Fprintf(l, "%s\t%s\t%s\n", time.Now().Format(time.RFC3339), host, filepath.Base(dst))

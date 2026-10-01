@@ -830,6 +830,11 @@ func (d *DOS) shCopy(st *shellState, src, dst string) {
 	defer d.closeHandle(in)
 	out := uint16(1)
 	if dst != "" {
+		if d.sameFile(src, dst) {
+			d.shPrint("File cannot be copied onto itself" + crlf)
+			st.level = 1
+			return
+		}
 		h, errc := d.shOpen(dst, true, true)
 		if errc != 0 {
 			d.shPrint("Cannot create " + dst + ": " + errText(errc) + crlf)

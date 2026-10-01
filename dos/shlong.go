@@ -97,6 +97,13 @@ func (d *DOS) shOpen(arg string, create, trunc bool) (uint16, uint16) {
 			return d.open([]byte(arg), mode, create, trunc, false)
 		}
 	}
+	if create && trunc {
+		if r, errc := d.fs.lfnResolve([]byte(arg)); errc == 0 && r.exists && !r.isRoot && !d.fs.wp(r.host) {
+			if d.fs.saveOverwritten(r.host) != nil {
+				return 0, errAccess // not saved: not overwritten
+			}
+		}
+	}
 	if create {
 		if r, errc := d.fs.lfnResolve([]byte(arg)); errc == 0 && !r.exists && !r.isRoot {
 			return d.openHost(r.drive, arg, r.host, false, 1, true, true, false)
@@ -147,4 +154,16 @@ func (d *DOS) shRename(from, to string) uint16 {
 	}
 	d.fs.invalidate()
 	return osErr(os.Rename(src.host, dst.host))
+}
+
+// sameFile tells whether two shell paths are one existing file (COPY a a would truncate it).
+func (d *DOS) sameFile(a, b string) bool {
+	ra, ea := d.fs.lfnResolve([]byte(a))
+	rb, eb := d.fs.lfnResolve([]byte(b))
+	if ea != 0 || eb != 0 || !ra.exists || !rb.exists {
+		return false
+	}
+	sa, errA := os.Stat(ra.host)
+	sb, errB := os.Stat(rb.host)
+	return errA == nil && errB == nil && os.SameFile(sa, sb)
 }
