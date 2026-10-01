@@ -48,6 +48,8 @@ type Config struct {
 	// AX=7100h, CF=1, as a DOS without LFN does (for programs that must be
 	// checked without long names, such as Norton Commander).
 	NoLFN bool
+	// HostExec enables running host commands from the built-in shell.
+	HostExec bool
 	// NotReady and WriteProtect list drives that fail like a floppy drive
 	// with no disk ("drive not ready", INT 24h error 02h) or with a
 	// write-protected disk (error 00h on writes). DOS then calls INT 24h
@@ -102,8 +104,8 @@ type DOS struct {
 	lineDone  bool
 	conIn     []byte // cooked CON input not yet consumed by read
 
-	noLFN bool
-	pipe  bool // pipe mode: stdin/stdout/stderr connected to host streams
+	noLFN    bool
+	hostExec bool
 
 	faults    [lastDrive]driveFault
 	anyFault  bool
@@ -127,7 +129,7 @@ type DOS struct {
 
 // New installs the kernel.
 func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
-	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN, pipe: cfg.Pipe}
+	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN, hostExec: cfg.HostExec}
 	fs, err := newFS(e, cfg)
 	if err != nil {
 		return nil, err
