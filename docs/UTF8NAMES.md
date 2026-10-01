@@ -96,6 +96,13 @@ strings and needs no change.
 - A provider must implement the AMIS installation check and the AMIS
   functions it is required to support; see the AMIS specification.
 
+## Programs that do not know UTF-8
+
+This document is for programs that turn UTF-8 on. For all others, go2dos gives
+a name that the code page cannot hold a unique alias that leads back to the host
+name, so that nothing is lost when such a program copies, moves or renames the
+file; see `NAMES.md` (in Russian).
+
 ## Open points
 
 - ~~Verify the AMIS details above against the AMIS 3.6 text~~ Done (go2dos,

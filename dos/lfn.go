@@ -18,8 +18,10 @@ import (
 // Unicode. A component is looked up by its exact host name, then without
 // regard to case, then as the 8.3 alias that the classic calls see (fs.go,
 // index). Names that do not fit the code page come out with '_' for each
-// unmappable character (Unicode conversion flag, RBIL table 01780) and a
-// name longer than 255 bytes is reported by its alias.
+// unmappable character and ~HHHH before the extension, a form that is unique
+// and leads back to the host name (names.go; the Unicode conversion flag,
+// RBIL table 01780, is set), and a name longer than 255 bytes is reported by
+// its alias.
 
 const (
 	maxLFNName = 255 // longest file name (71A0h CX)
@@ -38,6 +40,9 @@ func (d *DOS) lfnStr(seg, off uint16) []byte {
 func (f *fsys) oem(s string) (out []byte, lossy bool) {
 	if f.utf8() {
 		return []byte(s), false
+	}
+	if rec := f.registered(s); rec != nil {
+		return []byte(rec.longName()), true // not '_' only: unique, and the name can be recovered (names.go)
 	}
 	for _, r := range s {
 		b, ok := f.e.CP.Byte(r)
@@ -77,6 +82,11 @@ func (f *fsys) findName(hostDir, name string) (dirEntry, bool, uint16) {
 	}
 	if i, ok := ix.byFold[strings.ToLower(name)]; ok {
 		return ix.entries[i], true, 0
+	}
+	if rec := f.recByLong(name); rec != nil {
+		if i, ok := ix.byHost[rec.host]; ok {
+			return ix.entries[i], true, 0
+		}
 	}
 	if enc, ok := f.encodeName(name); ok {
 		for i, c := range enc {
@@ -153,6 +163,14 @@ func (f *fsys) lfnResolve(p []byte) (lfnPath, uint16) {
 			return lfnPath{}, errPathNotFound
 		}
 		ent, ok, errc := f.findName(cur, part)
+		if errc == 0 && !ok && last {
+			// An alias that a listing gave, maybe with another extension:
+			// the file with the original name (names.go).
+			if h, mapped := f.mapNew(part); mapped {
+				part = h
+				ent, ok, errc = f.findName(cur, part)
+			}
+		}
 		if errc != 0 {
 			return lfnPath{}, errPathNotFound
 		}
@@ -350,7 +368,9 @@ func (d *DOS) lfnSearch(drive int, hostDir, pat string, allow, must byte) ([]lfn
 	}
 	for _, e := range ix.entries {
 		if !wildMatch(pat, e.host) && !wildMatch(pat, e.dos) {
-			continue
+			if rec := f.registered(e.host); rec == nil || !wildMatch(pat, f.e.CP.Decode([]byte(rec.longName()))) {
+				continue
+			}
 		}
 		ea := attrOf(e)
 		if ea&(attrHidden|attrSystem|attrDir)&^allow != 0 || ea&must != must {
