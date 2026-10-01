@@ -25,6 +25,8 @@ path such as C:\VC.COM.
 While running in a terminal, press Ctrl-] then:
   q  quit
   d  quit and write a diagnostic dump
+  c  copy the screen text to the clipboard
+  v  paste the clipboard as keystrokes
   ]  send Ctrl-] to the program
 
 flags:

@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/unxed/go2dos/bios"
+	"github.com/unxed/go2dos/cp"
 )
 
 // Тест запускает собственный тестовый бинарник как go2dos: при
@@ -142,5 +145,33 @@ func TestPipeModeFilter(t *testing.T) {
 		if code != 0 || out != c.out {
 			t.Errorf("cp%s %q: exit code %d, stdout %q, want %q (stderr %q)", c.page, c.in, code, out, c.out, errs)
 		}
+	}
+}
+
+// The terminal frontend: bracketed paste goes to the paste handler as one
+// text, Ctrl-] c and Ctrl-] v are the copy and paste commands, other input is
+// still keystrokes.
+func TestInputParserPasteAndCommands(t *testing.T) {
+	page, err := cp.Get(437)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pushed []bios.KeyEvent
+	var pastes []string
+	var cmds []termCmd
+	p := &inputParser{page: page,
+		push:  func(k bios.KeyEvent) { pushed = append(pushed, k) },
+		cmd:   func(c termCmd) { cmds = append(cmds, c) },
+		paste: func(s string) { pastes = append(pastes, s) }}
+	p.run(strings.NewReader("a\x1b[200~ab\ncd \u00e9\x1b[201~b\x1dc\x1dv\x1d\x1d"))
+	if len(pastes) != 1 || pastes[0] != "ab\ncd \u00e9" {
+		t.Errorf("pastes %q", pastes)
+	}
+	if len(cmds) != 2 || cmds[0] != cmdCopy || cmds[1] != cmdPaste {
+		t.Errorf("commands %v, want copy and paste", cmds)
+	}
+	// 'a', 'b' and the Ctrl-] sent on with Ctrl-] Ctrl-]
+	if len(pushed) != 3 || pushed[0].ASCII != 'a' || pushed[1].ASCII != 'b' || pushed[2].ASCII != 0x1D {
+		t.Errorf("keystrokes %+v", pushed)
 	}
 }

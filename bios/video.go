@@ -555,6 +555,28 @@ func (s *Screen) Region(x, y, w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
+// Selection returns the text of the rectangle between the cells (x0, y0) and
+// (x1, y1), both included, in any corner order and clamped to the screen: one
+// line per row, trailing blanks removed. It is what a copy from the screen puts
+// on the clipboard.
+func (s *Screen) Selection(x0, y0, x1, y1 int) string {
+	if !s.TextMode() {
+		return ""
+	}
+	if x0 > x1 {
+		x0, x1 = x1, x0
+	}
+	if y0 > y1 {
+		y0, y1 = y1, y0
+	}
+	x0, y0 = max(x0, 0), max(y0, 0)
+	x1, y1 = min(x1, s.Cols-1), min(y1, s.Rows-1)
+	if x0 > x1 || y0 > y1 {
+		return ""
+	}
+	return s.Region(x0, y0, x1-x0+1, y1-y0+1)
+}
+
 // Snapshot captures the visible text screen from video memory, the BIOS
 // data area and the CRTC registers.
 func (v *Video) Snapshot() *Screen {

@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"io"
 	"os"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/unxed/go2dos/bios"
 	"github.com/unxed/go2dos/cp"
+	"github.com/unxed/go2dos/frontend"
 	"github.com/unxed/go2dos/keys"
 	"github.com/unxed/go2dos/machine"
 
@@ -26,6 +29,7 @@ import (
 type termHost struct {
 	rend *renderer
 	in   *stdinReader
+	clip frontend.MemoryClipboard // what the DOS clipboard server (INT 2Fh/17xx) sees
 
 	fd       int
 	st       *term.State
@@ -55,9 +59,35 @@ func (h *termHost) Start(m *machine.Machine, display string, stop func(dump bool
 	if err != nil {
 		return nil, err
 	}
-	p := &inputParser{page: m.CP, push: m.PushKey, cmd: func(c termCmd) { stop(c == cmdDump) }}
+	p := &inputParser{page: m.CP, push: m.PushKey, paste: m.PasteText, cmd: func(c termCmd) {
+		switch c {
+		case cmdCopy:
+			h.copyScreen(m)
+		case cmdPaste:
+			go h.pasteClipboard(m) // may block while the key queue is full
+		default:
+			stop(c == cmdDump)
+		}
+	}}
 	go p.run(h.in)
 	return restore, nil
+}
+
+// Clipboard is the clipboard that the DOS programs see (frontend.ClipboardProvider).
+func (h *termHost) Clipboard() frontend.Clipboard { return &h.clip }
+
+// copyScreen puts the text of the screen on the clipboards: ours and the terminal's.
+func (h *termHost) copyScreen(m *machine.Machine) {
+	text := m.Screen().Text()
+	h.clip.SetText(text)
+	h.rend.copyToTerminal(text)
+}
+
+// pasteClipboard types our clipboard into the program.
+func (h *termHost) pasteClipboard(m *machine.Machine) {
+	if text, err := h.clip.GetText(); err == nil {
+		m.PasteText(text)
+	}
 }
 
 // setup puts the terminal in raw mode (and on the alternate screen with alt).
@@ -69,6 +99,7 @@ func (h *termHost) setup(alt bool) (func(), error) {
 	}
 	h.st = st
 	h.undoVT = enableVT()
+	os.Stdout.WriteString("\x1b[?2004h") // bracketed paste
 	if alt {
 		h.Display(true)
 	}
@@ -76,6 +107,7 @@ func (h *termHost) setup(alt bool) (func(), error) {
 		if h.altOn {
 			h.Display(false)
 		}
+		os.Stdout.WriteString("\x1b[?2004l")
 		h.undoVT()
 		term.Restore(h.fd, h.st)
 	}, nil
@@ -153,6 +185,14 @@ func (r *renderer) display(grid bool) {
 	r.w.Flush()
 }
 
+// copyToTerminal asks the terminal to put text on its clipboard (OSC 52).
+func (r *renderer) copyToTerminal(text string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.w.WriteString("\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(text)) + "\a")
+	r.w.Flush()
+}
+
 // stream writes teletype output to the normal buffer: CR, LF, BS and BEL
 // stay control characters, every other byte is the glyph the screen shows.
 func (r *renderer) stream(b []byte, page *cp.Codepage) {
@@ -217,6 +257,8 @@ const (
 	cmdNone termCmd = iota
 	cmdQuit
 	cmdDump
+	cmdCopy  // Ctrl-] c: the screen text to the clipboard
+	cmdPaste // Ctrl-] v: the clipboard as keystrokes
 )
 
 // inputParser turns terminal input bytes into keystrokes.
@@ -224,7 +266,15 @@ type inputParser struct {
 	page *cp.Codepage
 	push func(bios.KeyEvent)
 	cmd  func(termCmd)
+	// paste receives text that the terminal pasted in bracketed-paste mode
+	// (ESC [ 200 ~ ... ESC [ 201 ~); nil: the markers are ignored.
+	paste func(string)
 }
+
+const (
+	pasteStart = "\x1b[200~"
+	pasteEnd   = "\x1b[201~"
+)
 
 var csiFinal = map[byte]string{'A': "Up", 'B': "Down", 'C': "Right", 'D': "Left", 'H': "Home", 'F': "End",
 	'P': "F1", 'Q': "F2", 'R': "F3", 'S': "F4"}
@@ -295,10 +345,26 @@ func (p *inputParser) run(r io.Reader) {
 					p.cmd(cmdQuit)
 				case 'd', 'D':
 					p.cmd(cmdDump)
+				case 'c', 'C':
+					p.cmd(cmdCopy)
+				case 'v', 'V':
+					p.cmd(cmdPaste)
 				case hotkey:
 					p.push(keys.Ctrl(']'))
 				}
 				pending = pending[1:]
+				continue
+			}
+			if p.paste != nil && bytes.HasPrefix(pending, []byte(pasteStart)) {
+				end := bytes.Index(pending, []byte(pasteEnd))
+				if end < 0 {
+					if !flush {
+						break // the rest of the paste has not arrived
+					}
+					end = len(pending)
+				}
+				p.paste(string(pending[len(pasteStart):end]))
+				pending = pending[min(end+len(pasteEnd), len(pending)):]
 				continue
 			}
 			n := p.parse(pending, flush)
