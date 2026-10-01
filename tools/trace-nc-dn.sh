@@ -1,5 +1,5 @@
 #!/bin/sh
-# Records headless go2dos traces of Norton Commander 5.0 and Dos Navigator 1.51
+# Records headless go2dos traces of Norton Commander 5.51 and Dos Navigator 1.51
 # (tools/fetch-nc.sh, tools/fetch-dn.sh) and writes a plain summary of what
 # was observed: exit status, last line of stderr, final screen. Nothing here
 # interprets the results; docs/NC-TESTING.md quotes them from CI runs.
