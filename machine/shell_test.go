@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/unxed/go2dos/cp"
+	"github.com/unxed/go2dos/dos"
 )
 
 // runShell runs runcmd.com, which executes C:\COMMAND.COM (not a file: the
@@ -144,5 +147,48 @@ func TestShellFileWins(t *testing.T) {
 	_, text, _ := runShell(t, " /C ignored", map[string]string{"COMMAND.COM": string(hello)})
 	if l := lineList(text); l[0] != "Hello from go2dos" || l[1] != "EXIT AX=0007" {
 		t.Fatalf("screen:\n%s", text)
+	}
+}
+
+// Quotes and long names in the file commands, and the long name in DIR.
+func TestShellLongNames(t *testing.T) {
+	bat := "@echo off\r\n" +
+		"copy \"A long file name.txt\" \"Copy of it.txt\"\r\n" +
+		"ren \"Copy of it.txt\" \"Second name.txt\"\r\n" +
+		"md \"New dir with spaces\"\r\n" +
+		"cd \"New dir with spaces\"\r\n" +
+		"copy \"..\\A long file name.txt\" inside.txt\r\n" +
+		"cd ..\r\n" +
+		"type \"Second name.txt\"\r\n" +
+		"dir\r\n" +
+		"del \"A long file name.txt\"\r\n"
+	_, text, dir := runShell(t, " /C T3.BAT", map[string]string{"T3.BAT": bat, "A long file name.txt": "long-content\r\n"})
+	for _, w := range []string{"long-content", "A long file name.txt", "Second name.txt", "New dir with spaces"} {
+		if !strings.Contains(text, w) {
+			t.Errorf("screen lacks %q:\n%s", w, text)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "A long file name.txt")); err == nil {
+		t.Errorf("DEL left the file")
+	}
+	for _, p := range []string{"Second name.txt", filepath.Join("New dir with spaces", "inside.txt")} {
+		if b, err := os.ReadFile(filepath.Join(dir, p)); err != nil || string(b) != "long-content\r\n" {
+			t.Errorf("%s = %q, %v", p, b, err)
+		}
+	}
+}
+
+// A name that the code page cannot show is listed by its alias, and the alias works.
+func TestShellAliasName(t *testing.T) {
+	host := "Файл.txt" // cp437 has no Cyrillic
+	page, err := cp.Get(437)
+	if err != nil {
+		t.Fatal(err)
+	}
+	short, _ := dos.AliasFor(page, host)
+	bat := "@echo off\r\ndir\r\ntype " + short + "\r\n"
+	_, text, _ := runShell(t, " /C T4.BAT", map[string]string{"T4.BAT": bat, host: "alias-content\r\n"})
+	if !strings.Contains(text, "alias-content") {
+		t.Errorf("TYPE by alias failed:\n%s", text)
 	}
 }

@@ -236,10 +236,20 @@ or file name". A line that starts with `!` goes to the host at once. The exit co
 `COMMAND.COM /C` is that of the last program; a command that is not found gives 255
 (an arbitrary choice).
 
-Planned (the owner's wish, recorded in `HOSTEXEC.md`): the internal commands, and
-the programs started from the shell, should use the extensions of this document
-(UTF-8 and long names, the clipboard, the window size, command execution), so that
-what a program can do on its own it can also do through the shell.
+Long names (implemented, `dos/shlong.go`; tests `machine/shell_test.go`,
+`dos/shlong_test.go`): arguments may be in double quotes (`copy "A long name.txt" "Other.txt"`);
+the file commands (`CD MD RD DEL REN COPY TYPE DIR`) resolve paths with the same resolver as
+`INT 21h AH=71h` (§4), so long names, and the aliases of names that the code page cannot show
+(§6), work. A new file or directory may have a long name. `REN` takes a name without a path
+and never overwrites; `COPY` overwrites an existing target, as DOS does. `DIR` prints the
+long name after the time when it differs from the 8.3 name, as Windows 95 does, and a mask
+also matches long names. `CD` stores the 8.3 form in the current directory (so `PROMPT $P`
+shows it).
+
+Planned (the owner's wish, recorded in `HOSTEXEC.md`): the rest of the extensions in the
+built-in commands (the clipboard, the window size, command execution), so that what a
+program can do on its own it can also do through the shell. Programs started from the shell
+already see every extension of this document (§2): the providers belong to the machine.
 
 ## 12. WASI bridge (`DOS-WASI/PREVIEW1`): planned
 

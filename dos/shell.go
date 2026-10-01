@@ -702,31 +702,31 @@ func (d *DOS) shellInternalCmd(e *hle.Env, st *shellState, name, args string) {
 	case "CD", "CHDIR":
 		if a == "" {
 			d.shPrint(fmt.Sprintf("%c:%s%s", 'A'+d.fs.cur, d.fs.cwd[d.fs.cur], crlf))
-		} else if errc := d.chdir([]byte(a)); errc != 0 {
+		} else if errc := d.chdir(d.shPath(shOne(a))); errc != 0 {
 			d.shPrint("Invalid directory" + crlf)
 			st.level = 1
 		}
 	case "MD", "MKDIR":
-		if errc := d.mkdir([]byte(a)); errc != 0 {
+		if errc := d.shMkdir(shOne(a)); errc != 0 {
 			errOut(errc, "Unable to create directory")
 		}
 	case "RD", "RMDIR":
-		if errc := d.rmdir([]byte(a)); errc != 0 {
+		if errc := d.rmdir(d.shPath(shOne(a))); errc != 0 {
 			errOut(errc, "Invalid path, not directory, or directory not empty")
 		}
 	case "DEL", "ERASE":
 		if strings.ContainsAny(a, "*?") {
 			d.shPrint("Wildcards are not supported by DEL in the built-in COMMAND.COM" + crlf)
 			st.level = 1
-		} else if errc := d.unlink([]byte(a)); errc != 0 {
+		} else if errc := d.unlink(d.shPath(shOne(a))); errc != 0 {
 			errOut(errc, "Cannot delete")
 		}
 	case "REN", "RENAME":
-		f := strings.Fields(a)
+		f := shArgs(a)
 		if len(f) != 2 {
 			d.shPrint("Required parameter missing" + crlf)
 			st.level = 1
-		} else if errc := d.rename([]byte(f[0]), []byte(f[1])); errc != 0 {
+		} else if errc := d.shRename(f[0], f[1]); errc != 0 {
 			errOut(errc, "Cannot rename")
 		}
 	case "SET":
@@ -749,9 +749,9 @@ func (d *DOS) shellInternalCmd(e *hle.Env, st *shellState, name, args string) {
 			d.envSet("PROMPT", a, false)
 		}
 	case "TYPE":
-		d.shCopy(st, a, "")
+		d.shCopy(st, shOne(a), "")
 	case "COPY":
-		f := strings.Fields(a)
+		f := shArgs(a)
 		if len(f) != 2 || strings.Contains(a, "+") {
 			d.shPrint("Only COPY source destination is supported by the built-in COMMAND.COM" + crlf)
 			st.level = 1
@@ -801,7 +801,7 @@ func (d *DOS) shCopy(st *shellState, src, dst string) {
 		st.level = 1
 		return
 	}
-	in, errc := d.open([]byte(src), 0, false, false, false)
+	in, errc := d.shOpen(src, false)
 	if errc != 0 {
 		d.shPrint("File not found - " + src + crlf)
 		st.level = 1
@@ -810,7 +810,7 @@ func (d *DOS) shCopy(st *shellState, src, dst string) {
 	defer d.closeHandle(in)
 	out := uint16(1)
 	if dst != "" {
-		h, errc := d.open([]byte(dst), 1, true, true, false)
+		h, errc := d.shOpen(dst, true)
 		if errc != 0 {
 			d.shPrint("Cannot create " + dst + ": " + errText(errc) + crlf)
 			st.level = 1
@@ -842,7 +842,7 @@ func commas(n int64) string {
 
 func (d *DOS) shDir(st *shellState, a string) {
 	var arg string
-	for _, f := range strings.Fields(a) {
+	for _, f := range shArgs(a) {
 		if !strings.HasPrefix(f, "/") {
 			arg = f
 		}
@@ -850,7 +850,7 @@ func (d *DOS) shDir(st *shellState, a string) {
 	if arg == "" {
 		arg = "*.*"
 	}
-	drive, dp, errc := d.fs.canon([]byte(arg), true)
+	drive, dp, errc := d.fs.canon(d.shPath(arg), true)
 	if errc != 0 {
 		d.shPrint("Invalid drive specification" + crlf)
 		st.level = 1
@@ -894,7 +894,7 @@ func (d *DOS) shDir(st *shellState, a string) {
 	var bytes int64
 	var names []dirEntry
 	for _, en := range ix.entries {
-		if attrOf(en)&attrHidden != 0 || !fcbMatch(pat, fcbName(en.dos)) {
+		if attrOf(en)&attrHidden != 0 || !(fcbMatch(pat, fcbName(en.dos)) || wildMatch(mask, en.host)) {
 			continue
 		}
 		names = append(names, en)
@@ -912,8 +912,12 @@ func (d *DOS) shDir(st *shellState, a string) {
 		if h == 0 {
 			h = 12
 		}
-		d.shPrint(fmt.Sprintf("%-8s %-3s %10s  %02d-%02d-%02d %2d:%02d%c%s", base, ext, size,
-			int(t.Month()), t.Day(), t.Year()%100, h, t.Minute(), ap, crlf))
+		long := ""
+		if l := d.shLongName(en); l != "" {
+			long = " " + l
+		}
+		d.shPrint(fmt.Sprintf("%-8s %-3s %10s  %02d-%02d-%02d %2d:%02d%c%s%s", base, ext, size,
+			int(t.Month()), t.Day(), t.Year()%100, h, t.Minute(), ap, long, crlf))
 	}
 	if dir != `\` {
 		if mask == "*.*" {
