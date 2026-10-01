@@ -1,5 +1,5 @@
 diff --git a/vc.asm b/vc.asm
-index 2954a1d..07747f2 100644
+index 2954a1d..7fd8c7b 100644
 --- a/vc.asm
 +++ b/vc.asm
 @@ -1437,7 +1437,7 @@ FncTab	DW	4800h, F00_00		; Up
@@ -27,12 +27,23 @@ index 2954a1d..07747f2 100644
  	MOV	DI,OFFSET MD.NcPath	; NcPath
  	PUSH	ES
  	PUSH	DI
-@@ -24604,13 +24606,15 @@ EdKeys	DW	0013h, E01_00		; ^S
+@@ -13226,7 +13228,9 @@ Edit_T	DW	0009h, T03_00		; Tab
+ 	DW	7600h, T16_00		; ^PgDn
+ 	DW	7700h, T15_00		; ^Home
+ 	DW	7500h, T16_00		; ^End
+-	DW	5300h, T20_00		; Del
++	DW	5300h, TClip		; Del, Shift-Del - cut
++	DW	5200h, TClip		; Shift-Ins - paste
++	DW	9200h, TClip		; Ctrl-Ins - copy
+ 	DW	0007h, T20_00		; ^G
+ 	DW	0008h, T21_00		; BackSpace
+ 	DW	007Fh, T22_00		; ^BS
+@@ -24604,13 +24608,15 @@ EdKeys	DW	0013h, E01_00		; ^S
  	DW	7500h, E06_00		; ^End
  	DW	0008h, E07_00		; BackSpace
  	DW	0007h, E08_00		; ^G
 -	DW	5300h, E08_00		; Del
-+	DW	5300h, E16_00		; Del, Shift-Del - cut
++	DW	5300h, E14_00		; Del, Shift-Del - cut
  	DW	0019h, E09_00		; ^Y
  	DW	000Bh, E10_00		; ^K
  	DW	0017h, E11_00		; ^W
@@ -40,11 +51,11 @@ index 2954a1d..07747f2 100644
  	DW	0014h, E12_00		; ^T
  	DW	0011h, E13_00		; ^Q
 +	DW	5200h, E14_00		; Shift-Ins - paste
-+	DW	9200h, E15_00		; Ctrl-Ins - copy
++	DW	9200h, E14_00		; Ctrl-Ins - copy
  	DW	0
  
  	.CODE
-@@ -24717,6 +24721,156 @@ E13_00:	MOV	DS:[MD.Quote],1		; ^Q
+@@ -24717,6 +24723,141 @@ E13_00:	MOV	DS:[MD.Quote],1		; ^Q
  	JMP	E00_04
  ;EdLin	ENDP
  
@@ -53,25 +64,45 @@ index 2954a1d..07747f2 100644
 +; at start into a block of ExtBlk paragraphs; without the file nothing happens.
 +; Line editing: Ctrl-Ins - copy the line, Shift-Ins - paste, Shift-Del - cut.
 +ExtBlk	EQU	100h			; Paragraphs for the module block (4 KB)
-+XCopy	EQU	4			; Entries of the module (offsets in the file)
-+XFetch	EQU	7
-+Buf	EQU	800h			; The text of the clipboard in the block
++XField	EQU	4			; Entries of the module (offsets in the file)
++XText	EQU	7
 +
-+E14_00:	CALL	ClipShift		; Shift-Ins - paste
-+	JE	E00_04
-+	CALL	ClipPaste
-+	JMP	E00_06
-+E15_00:	MOV	BX,XCopy		; Ctrl-Ins - copy
++; Fields and the command line (EdLin): Ctrl-Ins - copy the line, Shift-Ins - paste,
++; Shift-Del - cut, Del - delete a char.  In: AX - key, ES:DI - line, DX - cursor,
++; CX - max length.  The module does the work; CF=1 - "not mine": Del deletes a char.
++E14_00:	MOV	BX,XField
 +	CALL	ExtCall
-+	JMP	E00_04
-+E16_00:	CALL	ClipShift		; Shift-Del - cut, Del - delete a char
-+	JE	E08_00
-+	MOV	BX,XCopy
-+	CALL	ExtCall
-+	JC	E08_00			; No clipboard: only delete a char
-+	MOV	BYTE PTR ES:[DI],0
-+	XOR	DX,DX
++	JC	E14_01
++	OR	AL,AL
++	JE	E14_02
 +	JMP	E00_06
++E14_01:	CMP	AH,53h
++	JNE	E14_02
++	JMP	E08_00
++E14_02:	JMP	E00_04
++
++; The text editor (Edit_T): the same keys on the current line (EditBuf).  The module
++; returns CF=1 - not handled, AL=0 - done, 1 - cut (^Y follows), 2 - paste: the line
++; is in UndoBuf, CX - its length (^U follows).
++TClip:	MOV	SI,OFFSET EditBuf
++	MOV	CX,DS:[EdData.EdSizLn]
++	MOV	DI,OFFSET UndoBuf
++	PUSH	DS
++	POP	ES
++	MOV	BX,XText
++	CALL	ExtCall
++	JC	TC_01
++	DEC	AL
++	JS	TC_00
++	JZ	TC_02
++	MOV	DS:[EdData.EdUndo],CX
++	JMP	T26_00
++TC_02:	JMP	T25_00
++TC_01:	CMP	AH,53h			; No module: Del works, the others are ignored
++	JNE	TC_00
++	JMP	T20_00
++TC_00:	JMP	T00_20
++
 +F08_S:	CALL	ClipShift		; Shift-Ins - paste to the command line
 +	JE	F08_00
 +	JMP	F73_00
@@ -96,41 +127,6 @@ index 2954a1d..07747f2 100644
 +	CALL	DWORD PTR CS:[ExtOff]
 +	RET
 +EC_09:	STC
-+	RET
-+
-+; Insert the first line of the clipboard text into the line ES:DI at the cursor
-+; DX; CX - max length of the line, as for EdLin.  Returns DX.  Destroys: flags.
-+ClipPaste:
-+	PUSH	AX
-+	PUSH	BX
-+	PUSH	SI
-+	PUSH	BP
-+	PUSH	CX
-+	PUSH	DX			; Cursor
-+	MOV	BX,XFetch
-+	CALL	ExtCall			; CX - length of the text
-+	MOV	BP,CX
-+	POP	DX
-+	POP	CX
-+	JC	CP_09
-+	XOR	BX,BX
-+CP_04:	CMP	BX,BP
-+	JAE	CP_09
-+	PUSH	DS
-+	MOV	DS,CS:[ExtSeg]
-+	MOV	AL,DS:[BX+Buf]
-+	POP	DS
-+	INC	BX
-+	XOR	AH,AH
-+	PUSH	BX
-+	MOV	SI,DI
-+	CALL	EdLin
-+	POP	BX
-+	JC	CP_04
-+CP_09:	POP	BP
-+	POP	SI
-+	POP	BX
-+	POP	AX
 +	RET
 +
 +ExtName	DB	'VCEXT.BIN',0

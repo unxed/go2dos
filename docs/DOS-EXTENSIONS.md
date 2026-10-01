@@ -298,17 +298,25 @@ Without the file VC works as before.
   offsets 4 and 7. The block: 0000h-07FFh the file, 0800h-0FFFh the text of the
   clipboard (the loader keeps the path of the file at 0C00h only until the module
   runs).
-- **Entries.** 4 *Copy*: ES:DI = an ASCIIZ line, copies it to the clipboard (§3), an
-  empty line is not copied, CF = 1 if there is no clipboard server. 7 *Fetch*: the
-  first line of the clipboard text (at most 2048 bytes in all) is put at `CS:0800h`,
-  CX = its length (0 = none), CF = 1 if there is no server.
-- **Keys** (input fields and the command line only): Ctrl-Ins copies the line,
-  Shift-Ins (or Ctrl-Shift-Ins from a terminal that delivers it; the host turns it into Shift-Ins) pastes the first line, Shift-Del cuts it (Del without Shift deletes a
-  character, as before). Terminals that keep these combinations for themselves can
-  send them with `Ctrl-]`, then `y`, `p` or `x`.
-- **Limits.** `VC.COM` has 8 bytes left of 65280 (gate G3 of `ASM-GATES.md`). The editor
-  of VC 4.05 has no block selection; clipboard in the editor is planned, and the editor
-  of 4.99.09 does not exist in the build (its source is commented out).
+- **Entries.** Both get the key in AX (AH = scan code 52h Ins, 53h Del, 92h Ctrl-Ins) and
+  return CF=1 for "not mine" (no Shift for Ins/Del, no clipboard server): VC then does what
+  the key did before. The module reads Shift with `INT 16h AH=02h` (§9). Entry 4 *Field*
+  (input fields and the command line): ES:DI = ASCIIZ line, DX = cursor, CX = max length;
+  Ctrl-Ins copies the line, Shift-Ins inserts the first line of the clipboard at the cursor
+  (what does not fit is cut, as typing does), Shift-Del copies the line and clears it.
+  Entry 7 *Text* (the editor): SI = the current line (CX bytes), DI = UndoBuf; Ctrl-Ins
+  copies the line, Shift-Del copies it and VC then deletes the line (`^Y`), Shift-Ins puts
+  the first clipboard line plus CR LF into UndoBuf and VC then inserts it (`^U`). A line goes
+  to the clipboard up to 2047 characters. Details: the header of `vcext.asm`.
+- **Keys** (input fields, the command line and the text editor of 4.05): Ctrl-Ins copies the
+  line, Shift-Ins (or Ctrl-Shift-Ins from a terminal that delivers it; the host turns it into
+  Shift-Ins) pastes the first line, Shift-Del cuts it (Del without Shift deletes a character,
+  as before). In the editor the unit is the current line: paste inserts the line with a line
+  end at the cursor, like `^U`. Terminals that keep these combinations for themselves can send
+  them with `Ctrl-]`, then `y`, `p` or `x`.
+- **Limits.** `VC.COM` has 22 bytes left of 65280 (gate G3 of `ASM-GATES.md`). The editor of VC
+  4.05 has no block selection, so the clipboard unit there is the line; the editor of 4.99.09
+  does not exist in the build (its source is commented out).
 
 ## 14. Versions and compatibility
 

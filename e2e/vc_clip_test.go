@@ -18,14 +18,22 @@ import (
 // (INT 2Fh AX=17xxh) over dos.MemClipboard.
 func clipSession(t *testing.T, script string, clip dos.Clipboard) {
 	t.Helper()
+	clipSessionFiles(t, script, clip, nil)
+}
+
+// clipSessionFiles is clipSession with extra files in the drive; it returns the
+// host directory of C:.
+func clipSessionFiles(t *testing.T, script string, clip dos.Clipboard, extra map[string]string) string {
+	t.Helper()
 	if _, err := os.Stat(vcDir(t, "4.05-clip")); err != nil {
 		t.Skip("no VC 4.05 with the clipboard client (tools/build-vc.sh builds bin/4.05-clip)")
 	}
-	m, err, _ := sessionOpts(t, "4.05-clip", script, nil, machine.Config{Clipboard: clip})
+	m, err, dir := sessionOpts(t, "4.05-clip", script, extra, machine.Config{Clipboard: clip})
 	var ex *machine.ExitError
 	if !errors.As(err, &ex) || ex.Code != 0 {
 		t.Fatalf("want exit 0, got %v; screen:\n%s", err, m.Screen().Text())
 	}
+	return dir
 }
 
 const clipQuit = `<F10><waitfor:Do you want to quit><Enter>`
@@ -124,4 +132,49 @@ func TestVC405ClipPasteBig(t *testing.T) {
 	}
 	clip := &dos.MemClipboard{Text: big}
 	clipSession(t, `<waitfor:10Quit><Shift-Ins><waitfor:first line>`+clipQuit, clip)
+}
+
+// The text editor (F4): Ctrl-Ins copies the current line, Shift-Ins inserts the first
+// line of the clipboard (with its line end) at the cursor, Shift-Del cuts the line.
+const edLines = "one\r\ntwo\r\nthree\r\n"
+
+// edScript opens ZLINES.TXT (the last file of the panel) in the editor, runs keys, saves
+// (F2) and leaves the editor.
+func edScript(keys string) string {
+	keys = strings.ReplaceAll(keys, "<w>", "<wait:300ms>") // VC clears the type-ahead after each key of the editor
+	return `<waitfor:10Quit><waitfor:zlines   txt><End><F4><waitfor:one>` + keys + `<F2><wait:300ms><Esc><wait:300ms>` + clipQuit
+}
+
+func TestVC405ClipEditorCopyPaste(t *testing.T) {
+	clip := &dos.MemClipboard{}
+	dir := clipSessionFiles(t, edScript(`<Down><w><Ctrl-Ins><w><Down><w><Shift-Ins><w>`), clip, map[string]string{"ZLINES.TXT": edLines})
+	if clip.Text != "two" {
+		t.Errorf("clipboard %q, want %q", clip.Text, "two")
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "ZLINES.TXT"))
+	if string(b) != "one\r\ntwo\r\ntwo\r\nthree\r\n" {
+		t.Errorf("file %q", b)
+	}
+}
+
+func TestVC405ClipEditorCut(t *testing.T) {
+	clip := &dos.MemClipboard{}
+	dir := clipSessionFiles(t, edScript(`<Down><w><Shift-Del><w>`), clip, map[string]string{"ZLINES.TXT": edLines})
+	if clip.Text != "two" {
+		t.Errorf("clipboard %q, want %q", clip.Text, "two")
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "ZLINES.TXT"))
+	if string(b) != "one\r\nthree\r\n" {
+		t.Errorf("file %q", b)
+	}
+}
+
+// Paste of text from outside, and Del without Shift still deletes a character.
+func TestVC405ClipEditorPasteOuterAndDel(t *testing.T) {
+	clip := &dos.MemClipboard{Text: "from clip\nsecond"}
+	dir := clipSessionFiles(t, edScript(`<Del><w><Shift-Ins><w>`), clip, map[string]string{"ZLINES.TXT": edLines})
+	b, _ := os.ReadFile(filepath.Join(dir, "ZLINES.TXT"))
+	if string(b) != "from clip\r\nne\r\ntwo\r\nthree\r\n" {
+		t.Errorf("file %q", b)
+	}
 }

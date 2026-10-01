@@ -45,15 +45,29 @@ func TestKeyReadKeepsModifiers(t *testing.T) {
 	}
 }
 
-// The flags last until the next INT 16h read or poll (AH=01h): a program that
-// shows hints for a held Shift must not see it stuck after the key was read.
+// The flags last until the next INT 16h read or the second poll (AH=01h): a program
+// may poll once right after the read (VC's editor) and still ask for the flags; but
+// one that shows hints for a held Shift must not see it stuck.
 //
-//	read; poll (AH=01h); get flags
-func TestKeyModifiersEndAtNextPoll(t *testing.T) {
-	prog := []byte{0xB4, 0x00, 0xCD, 0x16, 0xB4, 0x01, 0xCD, 0x16, 0xB4, 0x02, 0xCD, 0x16, 0xB4, 0x4C, 0xCD, 0x21}
-	_, err := runBytes(t, prog, func(m *Machine) { m.PushKey(namedKey(t, "Ins", bios.ModLShift)) }, 2*time.Second)
-	if got := kbdExitCode(t, err); got != 0 {
-		t.Errorf("flags %02X after the next poll, want 0", got)
+//	read; poll; get flags            -> kept
+//	read; poll; poll; get flags      -> gone
+func TestKeyModifiersEndAtSecondPoll(t *testing.T) {
+	rd := []byte{0xB4, 0x00, 0xCD, 0x16}
+	poll := []byte{0xB4, 0x01, 0xCD, 0x16}
+	flags := []byte{0xB4, 0x02, 0xCD, 0x16, 0xB4, 0x4C, 0xCD, 0x21}
+	for _, c := range []struct {
+		polls int
+		want  int
+	}{{1, 2}, {2, 0}} {
+		prog := append([]byte{}, rd...)
+		for i := 0; i < c.polls; i++ {
+			prog = append(prog, poll...)
+		}
+		prog = append(prog, flags...)
+		_, err := runBytes(t, prog, func(m *Machine) { m.PushKey(namedKey(t, "Ins", bios.ModLShift)) }, 2*time.Second)
+		if got := kbdExitCode(t, err); got != c.want {
+			t.Errorf("%d polls: flags %02X, want %02X", c.polls, got, c.want)
+		}
 	}
 }
 

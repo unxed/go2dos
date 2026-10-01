@@ -51,10 +51,12 @@ type BIOS struct {
 	// with, as with a key that is held down: Shift-Ins is the word of Ins to
 	// AH=00h, and the flags are all that tells them apart. So INT 16h AH=00h/10h
 	// puts the flags of the key it returns back into the BDA (held), until the
-	// next INT 16h read or poll.
+	// next INT 16h read or the second poll (AH=01h/11h) after it: a program may poll
+	// once right after the read (VC's editor does, ClrKbd) before it handles the key.
 	modQ     []byte
 	lastMods byte // flags of the key that bufGet returned last
 	held     byte // flag bits that the last INT 16h read put in the BDA
+	heldPoll int  // polls since that read
 
 	emptyPolls int
 	// IdlePolls is the number of consecutive empty INT 16h polls after which
@@ -294,6 +296,7 @@ func (b *BIOS) hold(mods byte) {
 		m := b.e.Mem
 		m.W8(bdaKbdFlags, m.R8(bdaKbdFlags)|mods)
 		b.held = mods
+		b.heldPoll = 0
 	}
 }
 
@@ -329,8 +332,13 @@ func (b *BIOS) poll(e *hle.Env) {
 
 func (b *BIOS) int16(e *hle.Env) error {
 	c := e.CPU
-	if ah := c.AH(); ah == 0x00 || ah == 0x01 || ah == 0x10 || ah == 0x11 {
+	switch ah := c.AH(); ah {
+	case 0x00, 0x10:
 		b.dropHeld()
+	case 0x01, 0x11:
+		if b.heldPoll++; b.heldPoll >= 2 {
+			b.dropHeld()
+		}
 	}
 	switch ah := c.AH(); ah {
 	case 0x00, 0x10:
