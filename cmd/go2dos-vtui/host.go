@@ -8,6 +8,8 @@ import (
 	"golang.org/x/term"
 
 	"github.com/unxed/go2dos/bios"
+	"github.com/unxed/go2dos/cp"
+	"github.com/unxed/go2dos/keys"
 	"github.com/unxed/go2dos/machine"
 	"github.com/unxed/vtinput"
 	"github.com/unxed/vtui"
@@ -38,18 +40,25 @@ func (h *host) Start(m *machine.Machine, display string, stop func(dump bool)) (
 		return nil, err
 	}
 	os.Stdout.WriteString("\x1b[?1049h\x1b[2J")
-	go h.readKeys(vtinput.NewReader(os.Stdin, false), m, stop)
+	go pumpEvents(vtinput.NewReader(os.Stdin, false).GetEventChan(), m.PushKey, m.CP, stop)
 	return func() {
 		os.Stdout.WriteString("\x1b[0m\x1b[?25h\x1b[?1049l")
 		undo()
 	}, nil
 }
 
-// readKeys reads vtinput events until the input ends.
-func (h *host) readKeys(r *vtinput.Reader, m *machine.Machine, stop func(dump bool)) {
+// pumpEvents turns vtinput events into keystrokes until the channel closes.
+// push may block while the machine's key queue is full.
+func pumpEvents(events <-chan *vtinput.InputEvent, push func(bios.KeyEvent), page *cp.Codepage, stop func(dump bool)) {
 	var hot hotkey
-	for ev := range r.GetEventChan() {
+	for ev := range events {
 		switch hot.feed(ev) {
+		case hotNone:
+			for _, k := range toKeys(ev, page) {
+				push(k)
+			}
+		case hotPass:
+			push(keys.Ctrl(']'))
 		case hotQuit:
 			stop(false)
 		case hotDump:
