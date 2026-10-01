@@ -1,9 +1,18 @@
 package dos
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/unxed/go2dos/bios"
+)
+
+// Clipboard-related errors
+var (
+	ErrClipboardNotOpen    = errors.New("clipboard is not open")
+	ErrUnsupportedFormat   = errors.New("unsupported clipboard format")
+	ErrPasteInvalidCoords  = errors.New("invalid paste coordinates")
+	ErrPasteOutOfBounds    = errors.New("paste operation out of screen bounds")
 )
 
 // TextSelection represents a text selection on the screen with start and end coordinates.
@@ -113,4 +122,38 @@ func (ts *TextSelection) SetFromCoords(startX, startY, endX, endY int) {
 	ts.StartY = startY
 	ts.EndX = endX
 	ts.EndY = endY
+}
+
+// PasteFromSelection puts the selected text into the DOS clipboard buffer.
+// Returns the number of bytes written to the clipboard, or an error if the
+// clipboard is not open or the selection is invalid.
+func (ts *TextSelection) PasteFromSelection(d *DOS, screen *bios.Screen, format uint16) (int, error) {
+	// Validate format
+	if format != 1 && format != 7 {
+		return 0, ErrUnsupportedFormat
+	}
+
+	// Check if clipboard is open
+	if !d.clipboardOpen {
+		return 0, ErrClipboardNotOpen
+	}
+
+	// Get selected text from screen
+	text := ts.GetSelectedText(screen)
+	if text == "" {
+		// Empty selection - clear the clipboard
+		d.clipboardData = []byte{}
+		d.clipboardFormat = 0
+		return 0, nil
+	}
+
+	// Convert text to clipboard format
+	data := []byte(text)
+
+	// Store in clipboard
+	d.clipboardData = make([]byte, len(data))
+	copy(d.clipboardData, data)
+	d.clipboardFormat = format
+
+	return len(data), nil
 }

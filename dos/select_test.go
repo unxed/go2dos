@@ -171,3 +171,123 @@ func TestTextSelectionSetFromCoords(t *testing.T) {
 		t.Errorf("SetFromCoords failed: got (%d,%d) to (%d,%d)", ts.StartX, ts.StartY, ts.EndX, ts.EndY)
 	}
 }
+
+// TestPasteFromSelectionSuccess tests pasting selected text into clipboard.
+func TestPasteFromSelectionSuccess(t *testing.T) {
+	screen := &bios.Screen{
+		Cols:  80,
+		Rows:  25,
+		Cells: make([]bios.Cell, 80*25),
+	}
+
+	// Fill first line with "Hello World"
+	text := "Hello World"
+	for i, ch := range text {
+		screen.Cells[i] = bios.Cell{Ch: byte(ch), Attr: 0x07, Rune: rune(ch)}
+	}
+	for i := len(text); i < 80*25; i++ {
+		screen.Cells[i] = bios.Cell{Ch: ' ', Attr: 0x07, Rune: ' '}
+	}
+
+	// Create DOS instance and open clipboard
+	m := createTestDOS(t)
+	m.clipboardOpen = true
+
+	// Paste selection
+	ts := &TextSelection{StartX: 0, StartY: 0, EndX: 4, EndY: 0}
+	size, err := ts.PasteFromSelection(m, screen, 7) // CF_OEMTEXT
+	if err != nil {
+		t.Fatalf("PasteFromSelection failed: %v", err)
+	}
+
+	// Check that clipboard was updated
+	if size != 5 {
+		t.Errorf("Expected size=5, got %d", size)
+	}
+	if string(m.clipboardData) != "Hello" {
+		t.Errorf("Expected 'Hello' in clipboard, got %q", string(m.clipboardData))
+	}
+	if m.clipboardFormat != 7 {
+		t.Errorf("Expected format 7, got %d", m.clipboardFormat)
+	}
+}
+
+// TestPasteFromSelectionClosed tests that pasting fails when clipboard is closed.
+func TestPasteFromSelectionClosed(t *testing.T) {
+	screen := &bios.Screen{
+		Cols:  80,
+		Rows:  25,
+		Cells: make([]bios.Cell, 80*25),
+	}
+
+	m := createTestDOS(t)
+	m.clipboardOpen = false
+
+	ts := &TextSelection{StartX: 0, StartY: 0, EndX: 5, EndY: 0}
+	_, err := ts.PasteFromSelection(m, screen, 7)
+	if err != ErrClipboardNotOpen {
+		t.Errorf("Expected ErrClipboardNotOpen, got %v", err)
+	}
+}
+
+// TestPasteFromSelectionUnsupportedFormat tests that unsupported format is rejected.
+func TestPasteFromSelectionUnsupportedFormat(t *testing.T) {
+	screen := &bios.Screen{
+		Cols:  80,
+		Rows:  25,
+		Cells: make([]bios.Cell, 80*25),
+	}
+
+	m := createTestDOS(t)
+	m.clipboardOpen = true
+
+	ts := &TextSelection{StartX: 0, StartY: 0, EndX: 5, EndY: 0}
+	_, err := ts.PasteFromSelection(m, screen, 99) // Invalid format
+	if err != ErrUnsupportedFormat {
+		t.Errorf("Expected ErrUnsupportedFormat, got %v", err)
+	}
+}
+
+// TestPasteFromSelectionEmpty tests pasting with empty/whitespace-only selection.
+func TestPasteFromSelectionEmpty(t *testing.T) {
+	screen := &bios.Screen{
+		Cols:  80,
+		Rows:  25,
+		Cells: make([]bios.Cell, 80*25),
+	}
+
+	// Fill with spaces
+	for i := 0; i < 80*25; i++ {
+		screen.Cells[i] = bios.Cell{Ch: ' ', Attr: 0x07, Rune: ' '}
+	}
+
+	m := createTestDOS(t)
+	m.clipboardOpen = true
+	m.clipboardData = []byte("Previous data")
+	m.clipboardFormat = 7
+
+	ts := &TextSelection{StartX: 0, StartY: 0, EndX: 0, EndY: 0}
+	size, err := ts.PasteFromSelection(m, screen, 7)
+	if err != nil {
+		t.Fatalf("PasteFromSelection failed: %v", err)
+	}
+
+	// Whitespace-only selection is treated as empty, so clipboard is cleared
+	if size != 0 {
+		t.Errorf("Expected size=0 for whitespace selection, got %d", size)
+	}
+	if len(m.clipboardData) != 0 {
+		t.Errorf("Expected empty clipboard data, got %q", string(m.clipboardData))
+	}
+}
+
+// Helper function to create a test DOS instance
+func createTestDOS(t *testing.T) *DOS {
+	// This is a minimal DOS instance for testing
+	// We only need the clipboard fields to be accessible
+	return &DOS{
+		clipboardOpen:   false,
+		clipboardFormat: 0,
+		clipboardData:   []byte{},
+	}
+}
