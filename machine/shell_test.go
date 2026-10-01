@@ -192,3 +192,44 @@ func TestShellAliasName(t *testing.T) {
 		t.Errorf("TYPE by alias failed:\n%s", text)
 	}
 }
+
+// CLIP: show, set from the line, from a file, clear; redirection with a long name, and
+// >> keeps what the file had.
+func TestShellClip(t *testing.T) {
+	clip := &dos.MemClipboard{Text: "first\nsecond"}
+	bat := "@echo off\r\n" +
+		"clip\r\n" +
+		"clip > \"clip out.txt\"\r\n" +
+		"echo more >> \"clip out.txt\"\r\n" +
+		"clip this text\r\n" +
+		"clip < in.txt\r\n"
+	_, text, dir := runShellCfg(t, Config{Clipboard: clip}, " /C T5.BAT", map[string]string{"T5.BAT": bat, "in.txt": "line1\r\nline2\r\n"})
+	if !strings.Contains(text, "first") || !strings.Contains(text, "second") {
+		t.Errorf("CLIP did not show the text:\n%s", text)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "clip out.txt")); string(b) != "first\r\nsecond\r\nmore\r\n" {
+		t.Errorf("clip out.txt = %q", b)
+	}
+	if clip.Text != "line1\nline2\n" {
+		t.Errorf("clipboard %q, want the file text", clip.Text)
+	}
+}
+
+func TestShellClipSetAndClear(t *testing.T) {
+	clip := &dos.MemClipboard{Text: "old"}
+	runShellCfg(t, Config{Clipboard: clip}, " /C CLIP this text", nil)
+	if clip.Text != "this text" {
+		t.Errorf("clipboard %q", clip.Text)
+	}
+	runShellCfg(t, Config{Clipboard: clip}, " /C CLIP /C", nil)
+	if clip.Text != "" {
+		t.Errorf("clipboard %q after CLIP /C", clip.Text)
+	}
+}
+
+func TestShellClipNone(t *testing.T) {
+	_, text, _ := runShell(t, " /C CLIP", nil)
+	if !strings.Contains(text, "No clipboard") {
+		t.Errorf("screen:\n%s", text)
+	}
+}

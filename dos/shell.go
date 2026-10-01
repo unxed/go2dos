@@ -70,6 +70,7 @@ type shellState struct {
 	prompted    bool
 	exit        bool
 	exitCode    byte
+	stdinRedir  bool // the internal command's stdin is a file (CLIP < file)
 }
 
 type shRedir struct {
@@ -389,14 +390,23 @@ func splitRedir(line string) (string, shRedir, bool) {
 			for j < len(line) && (line[j] == ' ' || line[j] == '\t') {
 				j++
 			}
-			k := j
-			for k < len(line) && line[k] != ' ' && line[k] != '\t' && line[k] != '<' && line[k] != '>' {
-				k++
+			k, name := j, ""
+			if k < len(line) && line[k] == '"' { // a quoted name, may have blanks
+				e := strings.IndexByte(line[k+1:], '"')
+				if e < 0 {
+					e = len(line) - k - 1
+				}
+				name, k = line[k+1:k+1+e], min(k+e+2, len(line))
+			} else {
+				for k < len(line) && line[k] != ' ' && line[k] != '\t' && line[k] != '<' && line[k] != '>' {
+					k++
+				}
+				name = line[j:k]
 			}
 			if ch == '<' {
-				r.in = line[j:k]
+				r.in = name
 			} else {
-				r.out, r.app = line[j:k], app
+				r.out, r.app = name, app
 			}
 			i = k - 1
 		default:
@@ -410,7 +420,7 @@ var shellInternal = map[string]bool{
 	"DIR": true, "CD": true, "CHDIR": true, "MD": true, "MKDIR": true, "RD": true, "RMDIR": true,
 	"SET": true, "ECHO": true, "TYPE": true, "VER": true, "EXIT": true, "REM": true, "PATH": true,
 	"PROMPT": true, "DEL": true, "ERASE": true, "REN": true, "RENAME": true, "COPY": true,
-	"CALL": true, "GOTO": true, "IF": true, "FOR": true, "PAUSE": true, "CLS": true, "SHIFT": true,
+	"CLIP": true, "CALL": true, "GOTO": true, "IF": true, "FOR": true, "PAUSE": true, "CLS": true, "SHIFT": true,
 }
 
 // redirect выполняет перенаправление вывода/ввода оболочки; возвращает
@@ -424,7 +434,7 @@ func (d *DOS) redirect(r shRedir) (restore func(), errc uint16) {
 	}
 	m := d.e.Mem
 	set := func(slot uint32, path string, mode byte, create, trunc, app bool) uint16 {
-		h, errc := d.open([]byte(path), mode, create, trunc, false)
+		h, errc := d.shOpen(path, create, trunc)
 		if errc != 0 {
 			return errc
 		}
@@ -525,6 +535,7 @@ func (d *DOS) shellRun(e *hle.Env, st *shellState, line string) bool {
 			st.level = 1
 			return false
 		}
+		st.stdinRedir = redir.in != ""
 		d.shellInternalCmd(e, st, name, args)
 		restore()
 		return false
@@ -760,6 +771,8 @@ func (d *DOS) shellInternalCmd(e *hle.Env, st *shellState, name, args string) {
 		d.shCopy(st, f[0], f[1])
 	case "DIR":
 		d.shDir(st, a)
+	case "CLIP":
+		d.shClip(st, args)
 	case "CALL":
 		d.shPrint("CALL is not supported by the built-in COMMAND.COM" + crlf)
 		st.level = 1
@@ -801,7 +814,7 @@ func (d *DOS) shCopy(st *shellState, src, dst string) {
 		st.level = 1
 		return
 	}
-	in, errc := d.shOpen(src, false)
+	in, errc := d.shOpen(src, false, false)
 	if errc != 0 {
 		d.shPrint("File not found - " + src + crlf)
 		st.level = 1
@@ -810,7 +823,7 @@ func (d *DOS) shCopy(st *shellState, src, dst string) {
 	defer d.closeHandle(in)
 	out := uint16(1)
 	if dst != "" {
-		h, errc := d.shOpen(dst, true)
+		h, errc := d.shOpen(dst, true, true)
 		if errc != 0 {
 			d.shPrint("Cannot create " + dst + ": " + errText(errc) + crlf)
 			st.level = 1

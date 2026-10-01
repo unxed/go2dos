@@ -178,3 +178,12 @@ func TestVC405ClipEditorPasteOuterAndDel(t *testing.T) {
 		t.Errorf("file %q", b)
 	}
 }
+
+// The built-in COMMAND.COM has CLIP: a command typed in VC reaches the same clipboard.
+func TestVC405ClipCommand(t *testing.T) {
+	clip := &dos.MemClipboard{}
+	clipSession(t, `<waitfor:10Quit>clip from the shell<Enter><wait:1500ms>`+clipQuit, clip)
+	if clip.Text != "from the shell" {
+		t.Errorf("clipboard %q", clip.Text)
+	}
+}

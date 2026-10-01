@@ -229,7 +229,7 @@ the exit code behave as with a real shell. If a `COMMAND.COM` file is there (for
 instance FreeCOM), it runs instead.
 
 Internal commands: `REM ECHO VER EXIT CD/CHDIR MD/MKDIR RD/RMDIR DEL/ERASE
-REN/RENAME SET PATH PROMPT TYPE COPY DIR CALL`. The lookup order is: internal
+REN/RENAME SET PATH PROMPT TYPE COPY DIR CALL CLIP`. The lookup order is: internal
 commands, DOS programs (the current directory, then `PATH`), and, with host
 commands on (§8), the programs of the host (`PATH` of the host); then "Bad command
 or file name". A line that starts with `!` goes to the host at once. The exit code of
@@ -246,8 +246,17 @@ long name after the time when it differs from the 8.3 name, as Windows 95 does, 
 also matches long names. `CD` stores the 8.3 form in the current directory (so `PROMPT $P`
 shows it).
 
+`CLIP` (implemented, `dos/shclip.go`; tests `machine/shell_test.go`,
+`e2e/vc_clip_test.go`) works with the clipboard server of §3, so it sees what WinOldAp
+programs and, in the terminal front end, the system clipboard see (`-clip-sync`). `CLIP`
+prints the text (OEM, CR LF, a final CR LF is added if missing; `CLIP > file` writes it to a
+file), `CLIP some text` sets the text to the rest of the line, `CLIP < file` sets it from a
+file (up to a 0 byte or Ctrl-Z), `CLIP /C` clears it. Without a clipboard (headless) it says
+"No clipboard in this session" and sets the exit code 1. Redirections `<`, `>`, `>>` take a
+name in double quotes (`> "long name.txt"`) and long names.
+
 Planned (the owner's wish, recorded in `HOSTEXEC.md`): the rest of the extensions in the
-built-in commands (the clipboard, the window size, command execution), so that what a
+built-in commands (the window size, command execution), so that what a
 program can do on its own it can also do through the shell. Programs started from the shell
 already see every extension of this document (§2): the providers belong to the machine.
 

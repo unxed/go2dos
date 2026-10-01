@@ -87,14 +87,14 @@ func (d *DOS) shLongName(en dirEntry) string {
 // shOpen opens a file for the shell's COPY and TYPE: the long name of an existing
 // file through its alias (shPath), a new file, which may have a long name, at the
 // host path that lfnResolve gives; devices (CON, NUL) go the classic way.
-func (d *DOS) shOpen(arg string, create bool) (uint16, uint16) {
+func (d *DOS) shOpen(arg string, create, trunc bool) (uint16, uint16) {
 	mode := byte(0)
 	if create {
 		mode = 1
 	}
 	if _, dp, errc := d.fs.canon([]byte(arg), false); errc == 0 {
 		if dev, _ := deviceFor(dp); dev != devNone {
-			return d.open([]byte(arg), mode, create, create, false)
+			return d.open([]byte(arg), mode, create, trunc, false)
 		}
 	}
 	if create {
@@ -102,7 +102,7 @@ func (d *DOS) shOpen(arg string, create bool) (uint16, uint16) {
 			return d.openHost(r.drive, arg, r.host, false, 1, true, true, false)
 		}
 	}
-	return d.open(d.shPath(arg), mode, create, create, false)
+	return d.open(d.shPath(arg), mode, create, trunc, false)
 }
 
 // shMkdir makes a directory with a long name.
