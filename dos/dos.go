@@ -97,6 +97,11 @@ type DOS struct {
 	breakChar bool                // Ctrl-Break seen by INT 1Bh: ^C is waiting for DOS
 	finds     map[uint16]*lfnFind // open long-name searches (71xx filefind handles)
 	nextFind  uint16
+
+	// WinOldAp clipboard (INT 2Fh/17xx)
+	clipboardOpen   bool
+	clipboardFormat uint16 // CF_TEXT (1) or CF_OEMTEXT (7)
+	clipboardData   []byte
 }
 
 // New installs the kernel.
