@@ -14,11 +14,17 @@ import (
 // GO2DOS_TEST_RUN=1 он вместо тестов исполняет run() с флагами из командной
 // строки (так проверяется разбор флагов и коды выхода без go build).
 func TestMain(m *testing.M) {
+	if os.Getenv("GO2DOS_TEST_PTY") == "1" && ptyHelperMain != nil {
+		os.Exit(ptyHelperMain())
+	}
 	if os.Getenv("GO2DOS_TEST_RUN") == "1" {
 		os.Exit(run())
 	}
 	os.Exit(m.Run())
 }
+
+// ptyHelperMain задаётся в attach_linux_test.go: хост-процесс для теста в pty.
+var ptyHelperMain func() int
 
 // COM-программа: INT 21h AH=5Ah (не поддерживается), затем выход с кодом 0
 // только если ответ «неверная функция» (CF=1, AX=1), иначе с кодом 1.

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -36,6 +37,16 @@ type Host interface {
 	// returned function restores the terminal; Run calls it after the
 	// machine stops.
 	Start(m *machine.Machine, display string, stop func(dump bool)) (restore func(), err error)
+}
+
+// Attacher is implemented by hosts that can hand the terminal to a host
+// command (docs/HOSTEXEC.md, the overlay mode): RunAttached pauses key input,
+// restores the terminal's normal state, runs cmd on it and takes the terminal
+// back; Attached reports whether cmd is running now (Run's SIGINT handler then
+// leaves Ctrl-C to the command). Call RunAttached from the machine goroutine.
+type Attacher interface {
+	RunAttached(cmd *exec.Cmd) error
+	Attached() bool
 }
 
 // Console is implemented by hosts that support the "console" display mode:
@@ -201,7 +212,16 @@ func Run(o *Options, args []string, host Host) int {
 	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
-	go func() { <-sig; cancel() }()
+	att, _ := host.(Attacher)
+	go func() {
+		for range sig {
+			if att != nil && att.Attached() {
+				continue // Ctrl-C belongs to the host command
+			}
+			cancel()
+			return
+		}
+	}()
 
 	wantDump := o.DumpOnExit
 	restore := func() {}
