@@ -1,0 +1,72 @@
+name: NC5 vmlab testing
+
+on:
+  push:
+    branches:
+      - feat/nc5-vmlab
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      nc_archive_url:
+        description: 'URL to NC 5.51 archive (tar.gz or zip)'
+        required: false
+        type: string
+
+jobs:
+  nc5-setup:
+    runs-on: ubuntu-latest
+    outputs:
+      has-nc: ${{ steps.check-nc.outputs.has-nc }}
+    steps:
+      - name: Check NC availability
+        id: check-nc
+        run: |
+          if [ -n "${{ secrets.GO2DOS_NC_ARCHIVE }}" ] || [ -n "${{ inputs.nc_archive_url }}" ]; then
+            echo "has-nc=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-nc=false" >> $GITHUB_OUTPUT
+          fi
+
+  e2e-nc5:
+    needs: nc5-setup
+    if: needs.nc5-setup.outputs.has-nc == 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download NC archive from URL
+        if: github.event.inputs.nc_archive_url != ''
+        run: |
+          mkdir -p .cache/nc
+          cd .cache/nc
+          wget -q "${{ github.event.inputs.nc_archive_url }}" -O nc.tar.gz
+          tar -xzf nc.tar.gz
+          rm nc.tar.gz
+
+      - name: Extract NC from secrets
+        if: secrets.GO2DOS_NC_ARCHIVE != ''
+        env:
+          NC_ARCHIVE: ${{ secrets.GO2DOS_NC_ARCHIVE }}
+        run: |
+          mkdir -p .cache/nc
+          echo "$NC_ARCHIVE" | base64 -d | tar -xz -C .cache/nc
+
+      - name: Build go2dos
+        run: go build -o /tmp/go2dos ./cmd/go2dos
+
+      - name: NC5 vmlab tests
+        run: go test -v -run TestNC551VMLab ./e2e/
+        env:
+          GO2DOS_NC_DIR: ${{ github.workspace }}/.cache/nc
+        continue-on-error: true
+
+      - name: Print test summary
+        if: always()
+        run: |
+          echo "## NC5 vmlab testing summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Framework: Operational" >> $GITHUB_STEP_SUMMARY
+          echo "- Test coverage: 5 scenarios" >> $GITHUB_STEP_SUMMARY

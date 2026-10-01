@@ -12,10 +12,13 @@ func TestSupportedGraphicsModes(t *testing.T) {
 	expectedModes := map[byte]struct {
 		width, height, colors int
 	}{
-		0x04: {320, 200, 4},
-		0x05: {320, 200, 4},
-		0x06: {640, 200, 2},
-		0x13: {320, 200, 256},
+		0x04: {320, 200, 4},      // CGA 4-color
+		0x05: {320, 200, 4},      // CGA 4-color alternate
+		0x06: {640, 200, 2},      // CGA 2-color
+		0x0F: {720, 348, 2},      // Hercules monochrome
+		0x11: {640, 480, 2},      // VGA monochrome
+		0x12: {640, 480, 16},     // VGA 16-color
+		0x13: {320, 200, 256},    // VGA 256-color
 	}
 
 	for mode, expected := range expectedModes {
@@ -172,5 +175,120 @@ func TestVGA256PaletteDefaults(t *testing.T) {
 
 	if frame.Palette[255] == nil {
 		t.Error("Palette[255] not initialized")
+	}
+}
+
+func TestHerculesPaletteDefaults(t *testing.T) {
+	frame := &GraphicsFrame{Mode: 0x0F, Colors: 2}
+	frame.setPaletteDefaults()
+
+	if len(frame.Palette) != 256 {
+		t.Errorf("Palette should have 256 entries, got %d", len(frame.Palette))
+	}
+
+	r, g, b, _ := frame.Palette[0].RGBA()
+	if r != 0 || g != 0 || b != 0 {
+		t.Errorf("Color 0 should be black, got RGBA(%d, %d, %d)", r, g, b)
+	}
+}
+
+func TestVGAMonochromePaletteDefaults(t *testing.T) {
+	frame := &GraphicsFrame{Mode: 0x11, Colors: 2}
+	frame.setPaletteDefaults()
+
+	r, g, b, _ := frame.Palette[0].RGBA()
+	if r != 0 || g != 0 || b != 0 {
+		t.Errorf("Color 0 should be black, got RGBA(%d, %d, %d)", r, g, b)
+	}
+
+	r, g, b, _ = frame.Palette[1].RGBA()
+	if r == 0 && g == 0 && b == 0 {
+		t.Error("Color 1 should not be black")
+	}
+}
+
+func TestVGA16PaletteDefaults(t *testing.T) {
+	frame := &GraphicsFrame{Mode: 0x12, Colors: 16}
+	frame.setPaletteDefaults()
+
+	if len(frame.Palette) != 256 {
+		t.Errorf("Palette should have 256 entries, got %d", len(frame.Palette))
+	}
+
+	// Check first color is black
+	r, g, b, _ := frame.Palette[0].RGBA()
+	if r != 0 || g != 0 || b != 0 {
+		t.Errorf("Color 0 should be black, got RGBA(%d, %d, %d)", r, g, b)
+	}
+
+	// Check that at least some colors are initialized
+	nonBlackFound := false
+	for i := 1; i < 16; i++ {
+		if frame.Palette[i] != nil {
+			r, g, b, _ := frame.Palette[i].RGBA()
+			if r > 0 || g > 0 || b > 0 {
+				nonBlackFound = true
+				break
+			}
+		}
+	}
+	if !nonBlackFound {
+		t.Error("VGA 16-color palette should have non-black colors")
+	}
+}
+
+func TestGraphicsFrameToImageHercules(t *testing.T) {
+	data := make([]byte, 720*348/8)
+	frame := &GraphicsFrame{
+		Mode:   0x0F,
+		Width:  720,
+		Height: 348,
+		Colors: 2,
+		Data:   data,
+	}
+	frame.setPaletteDefaults()
+
+	img := frame.ToImage()
+
+	if img.Bounds().Max.X != 720 || img.Bounds().Max.Y != 348 {
+		t.Errorf("Image size: got %dx%d, want 720x348", img.Bounds().Max.X, img.Bounds().Max.Y)
+	}
+}
+
+func TestGraphicsFrameToImageVGA11(t *testing.T) {
+	data := make([]byte, 640*480/8)
+	frame := &GraphicsFrame{
+		Mode:   0x11,
+		Width:  640,
+		Height: 480,
+		Colors: 2,
+		Data:   data,
+	}
+	frame.setPaletteDefaults()
+
+	img := frame.ToImage()
+
+	if img.Bounds().Max.X != 640 || img.Bounds().Max.Y != 480 {
+		t.Errorf("Image size: got %dx%d, want 640x480", img.Bounds().Max.X, img.Bounds().Max.Y)
+	}
+}
+
+func TestGraphicsFrameToImageVGA12(t *testing.T) {
+	// VGA 12h: 640x480 16-color planar mode
+	// Total size: 640*480/8 bytes per plane * 4 planes
+	data := make([]byte, 640*480/8*4)
+	frame := &GraphicsFrame{
+		Mode:   0x12,
+		Width:  640,
+		Height: 480,
+		Colors: 16,
+		Data:   data,
+	}
+	frame.setPaletteDefaults()
+
+	img := frame.ToImage()
+
+	if img.Bounds().Max.X != 640 || img.Bounds().Max.Y != 480 {
+		t.Errorf("Image size: got %dx%d, want 640x480", img.Bounds().Max.X, img.Bounds().Max.Y)
 	}
 }
