@@ -124,6 +124,8 @@ type DOS struct {
 	shellTrap uint16
 	clip      Clipboard
 	clipOpen  bool
+	clipSnap  []byte // the text 1704h reported, for the 1705h that follows (clip.go)
+	clipHave  bool
 	utf8      map[uint16]bool     // processes with UTF-8 file names (utf8names.go)
 	amis      map[byte]*amisEntry // AMIS providers by multiplex number (amis.go)
 	amisHooks uint16

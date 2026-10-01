@@ -76,15 +76,18 @@ func (d *DOS) winOldAp(e *hle.Env) (bool, error) {
 	case 0x00:
 		ret(winOldApVer)
 	case 0x01: // открыть: 0 — уже открыт
+		d.clipHave = false
 		flag(!d.clipOpen)
 		d.clipOpen = true
 	case 0x02: // очистить (как в Windows, только у открытого буфера)
+		d.clipHave = false
 		if !d.clipOpen {
 			ret(0)
 			return true, nil
 		}
 		flag(d.clip.SetText("") == nil)
 	case 0x03: // записать: DX формат, ES:BX данные, SI:CX размер
+		d.clipHave = false
 		size := int(c.R[cpu.SI])<<16 | int(c.R[cpu.CX])
 		if !d.clipOpen || !clipFormatOK(c.R[cpu.DX]) || size > clipMax {
 			ret(0)
@@ -97,15 +100,24 @@ func (d *DOS) winOldAp(e *hle.Env) (bool, error) {
 		s := strings.ReplaceAll(d.e.CP.Decode(b), "\r\n", "\n")
 		flag(d.clip.SetText(s) == nil)
 	case 0x04: // размер данных формата DX: с завершающим нулём; 0 — данных нет
+		// The text is read once here and kept for 1705h: the system clipboard
+		// may change between the two calls, and a client that allocated the
+		// size would get more bytes than it has room for.
 		var n int
+		d.clipHave = false
 		if clipFormatOK(c.R[cpu.DX]) {
 			if b, ok := d.clipBytes(); ok {
 				n = len(b) + 1
+				d.clipSnap, d.clipHave = b, true
 			}
 		}
 		c.R[cpu.AX], c.R[cpu.DX] = uint16(n), uint16(n>>16)
 	case 0x05: // данные формата DX в ES:BX
-		b, ok := d.clipBytes()
+		b, ok := d.clipSnap, d.clipHave
+		d.clipSnap, d.clipHave = nil, false
+		if !ok { // no 1704h before: the live text
+			b, ok = d.clipBytes()
+		}
 		if !clipFormatOK(c.R[cpu.DX]) || !ok {
 			ret(0)
 			return true, nil
@@ -113,6 +125,7 @@ func (d *DOS) winOldAp(e *hle.Env) (bool, error) {
 		e.Mem.SetBytes(mem.Lin(e.Seg(cpu.ES), c.R[cpu.BX]), append(b, 0))
 		ret(1)
 	case 0x08: // закрыть
+		d.clipHave = false
 		flag(d.clipOpen)
 		d.clipOpen = false
 	case 0x09: // уплотнить: места всегда хватает до clipMax

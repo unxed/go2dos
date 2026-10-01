@@ -58,3 +58,31 @@ func TestClipboardAbsent(t *testing.T) {
 		t.Errorf("line 0 = %q", got)
 	}
 }
+
+// flipClip changes its text after the first read: the system clipboard being
+// changed between the size (1704h) and the data (1705h) calls.
+type flipClip struct {
+	reads int
+	set   string
+}
+
+func (c *flipClip) GetText() (string, error) {
+	c.reads++
+	if c.reads == 1 {
+		return "é\nabc", nil
+	}
+	return "a much longer text than the client has room for", nil
+}
+func (c *flipClip) SetText(s string) error { c.set = s; return nil }
+
+// The data the client gets is the text whose size 1704h reported (T15b).
+func TestClipboardSnapshotBetweenSizeAndData(t *testing.T) {
+	clip := &flipClip{}
+	m := runClip(t, clip)
+	want := []string{"VER=0A03", "SIZE=00000007", "é", "abc"}
+	for i, w := range want {
+		if got := m.Screen().Line(i); got != w {
+			t.Fatalf("line %d = %q, want %q\nscreen:\n%s", i, got, w, m.Screen().Text())
+		}
+	}
+}

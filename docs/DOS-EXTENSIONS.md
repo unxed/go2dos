@@ -85,7 +85,7 @@ AX=1700h and takes any change of AX as "present".
 | 1701h | open | | AX = 1 on success, AX = 0 if already open |
 | 1702h | empty | clipboard open | AX = 1 on success, 0 if not open |
 | 1703h | set data | DX = format, ES:BX = data, SI:CX = size | AX = 1 on success, 0 on error (not open, wrong format, size over 1 MB) |
-| 1704h | size of data | DX = format | DX:AX = size including the final 0; 0 if no data |
+| 1704h | size of data | DX = format | DX:AX = size including the final 0; 0 if no data. The text is read here once and the next 1705h returns exactly that text, even if the host clipboard changed meanwhile |
 | 1705h | get data | DX = format, ES:BX = buffer | AX = 1 on success, 0 if no data |
 | 1708h | close | | AX = 1 on success, 0 if not open |
 | 1709h | compact | | DX:AX = 1 MB (always enough room) |
