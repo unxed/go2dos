@@ -33,8 +33,28 @@ var unsupportedProg = []byte{
 
 func runGo2dos(t *testing.T, args ...string) (int, string) {
 	t.Helper()
+	return runProg(t, unsupportedProg, args...)
+}
+
+// COM-программа: «установлен ли LFN» — INT 21h AX=71A0h (сведения о томе
+// C:\); выход с кодом 0 при CF=0 и с кодом 1 при CF=1 («не поддерживается»).
+var lfnProbeProg = []byte{
+	0xB8, 0xA0, 0x71, // mov ax,71A0h
+	0xBA, 0x1B, 0x01, // mov dx,name
+	0xBF, 0x1F, 0x01, // mov di,buf
+	0xB9, 0x20, 0x00, // mov cx,32
+	0xF9,       // stc
+	0xCD, 0x21, // int 21h
+	0x72, 0x05, // jc nolfn
+	0xB8, 0x00, 0x4C, 0xCD, 0x21, // mov ax,4C00h; int 21h
+	0xB8, 0x01, 0x4C, 0xCD, 0x21, // nolfn: mov ax,4C01h; int 21h
+	'C', ':', '\\', 0, // name
+}
+
+func runProg(t *testing.T, prog []byte, args ...string) (int, string) {
+	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "UNSUP.COM"), unsupportedProg, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "UNSUP.COM"), prog, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(os.Args[0], append(args, filepath.Join(dir, "UNSUP.COM"))...)
@@ -69,5 +89,15 @@ func TestNoLenientFailsFast(t *testing.T) {
 	}
 	if !strings.Contains(out, "unsupported: INT 21h AH=5Ah") || strings.Contains(out, "lenient mode") {
 		t.Errorf("unexpected stderr:\n%s", out)
+	}
+}
+
+func TestFlagNoLFN(t *testing.T) {
+	base := []string{"-headless", "-timeout", "10s", "-cp", "437", "-dump-dir", t.TempDir()}
+	if code, out := runProg(t, lfnProbeProg, base...); code != 0 {
+		t.Fatalf("without -nolfn: exit code %d, want 0 (LFN announced)\n%s", code, out)
+	}
+	if code, out := runProg(t, lfnProbeProg, append([]string{"-nolfn"}, base...)...); code != 1 {
+		t.Fatalf("with -nolfn: exit code %d, want 1 (CF=1 on 71A0h)\n%s", code, out)
 	}
 }

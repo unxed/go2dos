@@ -66,6 +66,7 @@ func run() int {
 	screenOut := flag.String("screen-out", "", "write the final screen text to `FILE`")
 	record := flag.String("record", "", "write the keys typed in this session as a script to `FILE`")
 	lenient := flag.Bool("lenient", false, "answer unsupported BIOS/DOS calls \"not supported\" instead of stopping; print a summary at the end")
+	noLFN := flag.Bool("nolfn", false, "switch the long file name API (INT 21h AH=71h) off: every 71xx call answers \"not supported\"")
 	watch := flag.String("watch", "", "log writes to these comma-separated linear hex addresses (with -trace or in dumps)")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage); flag.PrintDefaults() }
 	flag.Parse()
@@ -109,7 +110,7 @@ func run() int {
 	if interactive {
 		rend = newRenderer(os.Stdout)
 	}
-	cfg := machine.Config{Drives: drives, Codepage: *cpNum, Lenient: *lenient, TraceLog: traceW, TraceFilter: filter}
+	cfg := machine.Config{Drives: drives, Codepage: *cpNum, Lenient: *lenient, NoLFN: *noLFN, TraceLog: traceW, TraceFilter: filter}
 	for _, w := range strings.Split(*watch, ",") {
 		if w == "" {
 			continue
