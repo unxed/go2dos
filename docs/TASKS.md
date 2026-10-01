@@ -52,7 +52,7 @@
 | T15c | H | Крупные функции VC: модуль расширений `VCEXT.BIN` для 4.05, настройки в `VCEXT.INI`, правки оверлея 4.99.09 — по разделам «Если не влезает» в `ASM-GATES.md` | гейты G1–G8 |
 | T18 | — | **Сделано** (ветка `feat/hostexec`, поверх `feat/builtin-shell`). Команды хоста во встроенной оболочке (после влития `feat/builtin-shell`) — `HOSTEXEC.md` | e2e: `!echo hostexec-ok` в VC |
 | T19 | H | Оверлей: передача терминала команде хоста в режиме `console` (после влития `feat/frontend-iface`) — `HOSTEXEC.md` | тест в pty |
-| T20 | H | AMIS-API `DOS-HOST/HOSTEXEC` (после T08) — `HOSTEXEC.md` | `.COM`-тест |
+| T20 | — | **Сделано** (ветка `feat/hostexec-api`, поверх `feat/hostexec`, включает коммит `feat/amis`). AMIS-API `DOS-HOST/HOSTEXEC` (после T08) — `HOSTEXEC.md` | `.COM`-тест |
 | T17 | S | DN, HX, NC (DESIGN §20, `DN-PLAN.md`) | по их планам |
 | T16 | S | (в конце, не срочно) Трансляция x86 → wasm (`TRANSLATION.md`) | по плану T0–T5 |
 

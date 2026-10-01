@@ -181,6 +181,7 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 	e.Fallback("int21", func(e *hle.Env) error { d.fail(e, errInvalidFunc); return nil })
 	iret := e.Emit([]byte{0xCF})
 	e.SetVector(0x2A, hle.ROMSeg, iret)
+	d.installHostExecAPI()
 	return d, nil
 }
 
