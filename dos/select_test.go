@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/unxed/go2dos/bios"
+	"github.com/unxed/go2dos/cp"
 )
 
 // TestTextSelectionSingleLine tests selection on a single line.
@@ -289,5 +290,160 @@ func createTestDOS(t *testing.T) *DOS {
 		clipboardOpen:   false,
 		clipboardFormat: 0,
 		clipboardData:   []byte{},
+	}
+}
+
+// TestHostClipboard is a simple in-memory implementation of HostClipboard for testing.
+type TestHostClipboard struct {
+	text string
+}
+
+func (c *TestHostClipboard) GetText() (string, error) {
+	return c.text, nil
+}
+
+func (c *TestHostClipboard) SetText(s string) error {
+	c.text = s
+	return nil
+}
+
+// TestCopyToClipboardBasic tests copying screen selection to host clipboard.
+func TestCopyToClipboardBasic(t *testing.T) {
+	screen := &bios.Screen{
+		Cols:  80,
+		Rows:  25,
+		Cells: make([]bios.Cell, 80*25),
+	}
+
+	text := "Hello World"
+	for i, ch := range text {
+		screen.Cells[i] = bios.Cell{Ch: byte(ch), Attr: 0x07, Rune: rune(ch)}
+	}
+	for i := len(text); i < 80*25; i++ {
+		screen.Cells[i] = bios.Cell{Ch: ' ', Attr: 0x07, Rune: ' '}
+	}
+
+	ts := &TextSelection{StartX: 0, StartY: 0, EndX: 4, EndY: 0}
+	hclip := &TestHostClipboard{}
+
+	count, err := ts.CopyToClipboard(screen, hclip)
+	if err != nil {
+		t.Fatalf("CopyToClipboard failed: %v", err)
+	}
+
+	if count != 5 {
+		t.Errorf("Expected 5 chars, got %d", count)
+	}
+	if hclip.text != "Hello" {
+		t.Errorf("Expected 'Hello' in clipboard, got %q", hclip.text)
+	}
+}
+
+// TestCopyToClipboardEmpty tests copying empty selection.
+func TestCopyToClipboardEmpty(t *testing.T) {
+	screen := &bios.Screen{
+		Cols:  80,
+		Rows:  25,
+		Cells: make([]bios.Cell, 80*25),
+	}
+
+	for i := 0; i < 80*25; i++ {
+		screen.Cells[i] = bios.Cell{Ch: ' ', Attr: 0x07, Rune: ' '}
+	}
+
+	ts := &TextSelection{StartX: 0, StartY: 0, EndX: 0, EndY: 0}
+	hclip := &TestHostClipboard{text: "original"}
+
+	count, err := ts.CopyToClipboard(screen, hclip)
+	if err != nil {
+		t.Fatalf("CopyToClipboard failed: %v", err)
+	}
+
+	if hclip.text != "" {
+		t.Errorf("Expected empty clipboard, got %q", hclip.text)
+	}
+	if count != 0 {
+		t.Errorf("Expected 0 chars, got %d", count)
+	}
+}
+
+// TestPasteFromClipboardBasic tests pasting text as keystrokes.
+func TestPasteFromClipboardBasic(t *testing.T) {
+	testBIOS := &bios.BIOS{IdlePolls: 50}
+	testPage, err := cp.Get(437)
+	if err != nil {
+		t.Fatalf("Failed to get codepage 437: %v", err)
+	}
+
+	var keystrokes []bios.KeyEvent
+	pushKey := func(ke bios.KeyEvent) {
+		keystrokes = append(keystrokes, ke)
+	}
+
+	hclip := &TestHostClipboard{text: "hi"}
+
+	count, err := PasteFromClipboard(testBIOS, hclip, testPage, pushKey)
+	if err != nil {
+		t.Fatalf("PasteFromClipboard failed: %v", err)
+	}
+
+	if count != 2 {
+		t.Errorf("Expected 2 keystrokes, got %d", count)
+	}
+	if len(keystrokes) != 2 {
+		t.Errorf("Expected 2 key events, got %d", len(keystrokes))
+	}
+}
+
+// TestPasteFromClipboardWithNewlines tests that newlines become Enter keys.
+func TestPasteFromClipboardWithNewlines(t *testing.T) {
+	testBIOS := &bios.BIOS{IdlePolls: 50}
+	testPage, err := cp.Get(437)
+	if err != nil {
+		t.Fatalf("Failed to get codepage 437: %v", err)
+	}
+
+	var keystrokes []bios.KeyEvent
+	pushKey := func(ke bios.KeyEvent) {
+		keystrokes = append(keystrokes, ke)
+	}
+
+	hclip := &TestHostClipboard{text: "line1\nline2"}
+
+	count, err := PasteFromClipboard(testBIOS, hclip, testPage, pushKey)
+	if err != nil {
+		t.Fatalf("PasteFromClipboard failed: %v", err)
+	}
+
+	if count != 11 {
+		t.Errorf("Expected 11 keystrokes, got %d", count)
+	}
+}
+
+// TestPasteFromClipboardEmpty tests pasting empty clipboard.
+func TestPasteFromClipboardEmpty(t *testing.T) {
+	testBIOS := &bios.BIOS{IdlePolls: 50}
+	testPage, err := cp.Get(437)
+	if err != nil {
+		t.Fatalf("Failed to get codepage 437: %v", err)
+	}
+
+	var keystrokes []bios.KeyEvent
+	pushKey := func(ke bios.KeyEvent) {
+		keystrokes = append(keystrokes, ke)
+	}
+
+	hclip := &TestHostClipboard{text: ""}
+
+	count, err := PasteFromClipboard(testBIOS, hclip, testPage, pushKey)
+	if err != nil {
+		t.Fatalf("PasteFromClipboard failed: %v", err)
+	}
+
+	if count != 0 {
+		t.Errorf("Expected 0 keystrokes, got %d", count)
+	}
+	if len(keystrokes) != 0 {
+		t.Errorf("Expected no key events, got %d", len(keystrokes))
 	}
 }

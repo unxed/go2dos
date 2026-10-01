@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/unxed/go2dos/bios"
+	"github.com/unxed/go2dos/cp"
+	"github.com/unxed/go2dos/keys"
 )
 
 // Clipboard-related errors
@@ -185,4 +187,57 @@ func (ts *TextSelection) CopyToClipboard(screen *bios.Screen, hclip HostClipboar
 	}
 
 	return len([]rune(text)), nil
+}
+
+// PasteFromClipboard pastes text from the host clipboard as keystrokes into the
+// BIOS keyboard buffer, in chunks of at most 15 keystrokes (the BIOS buffer size).
+// The text is converted to the given code page, and newlines become Enter keystrokes.
+// It returns the number of keystrokes injected, or an error if the operation fails.
+func PasteFromClipboard(b *bios.BIOS, hclip HostClipboard, page *cp.Codepage, pushKey func(bios.KeyEvent)) (int, error) {
+	if b == nil {
+		return 0, errors.New("BIOS is nil")
+	}
+	if hclip == nil {
+		return 0, errors.New("host clipboard is nil")
+	}
+	if page == nil {
+		return 0, errors.New("code page is nil")
+	}
+
+	text, err := hclip.GetText()
+	if err != nil {
+		return 0, err
+	}
+
+	if text == "" {
+		return 0, nil
+	}
+
+	count := 0
+	chunk := 0
+	const chunkSize = 15
+
+	for _, r := range text {
+		if chunk >= chunkSize {
+			chunk = 0
+		}
+
+		if r == '\n' {
+			if ke, ok := keys.Named("Enter", 0); ok {
+				pushKey(ke)
+				count++
+				chunk++
+			}
+		} else if r == '\r' {
+			continue
+		} else {
+			if ke, ok := keys.Char(r, page); ok {
+				pushKey(ke)
+				count++
+				chunk++
+			}
+		}
+	}
+
+	return count, nil
 }
