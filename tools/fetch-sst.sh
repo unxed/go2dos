@@ -19,5 +19,7 @@ for k, v in ops.items():
         print(k)
 PY
 cd "$dir"
-xargs -P 8 -I{} sh -c '[ -s {}.json.gz ] || curl -fsSL -o {}.json.gz.tmp '"$base"'/{}.json.gz && { [ -s {}.json.gz ] || mv {}.json.gz.tmp {}.json.gz; }' < list.txt
+# metadata.json lists a few opcodes (0F, 8F/0, 9B, C6/0, C7/0, F4) whose test
+# files are absent upstream: a 404 skips the file instead of failing.
+xargs -P 8 -I{} sh -c '[ -s {}.json.gz ] || { curl -fsSL -o {}.json.gz.tmp '"$base"'/{}.json.gz && mv {}.json.gz.tmp {}.json.gz || echo "skipped (not published): {}" >&2; }' < list.txt
 echo "SingleStepTests in $dir"

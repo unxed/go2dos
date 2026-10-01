@@ -34,7 +34,7 @@ jobs:
       - run: sh tools/fetch-vc.sh .cache/vc
       - run: go test -v ./e2e/
         env:
-          GO2DOS_VC_DIR: .cache/vc
+          GO2DOS_VC_DIR: ${{ github.workspace }}/.cache/vc  # go test runs in e2e/, so the path must be absolute
 
   cpu-singlestep:
     runs-on: ubuntu-latest
@@ -50,4 +50,4 @@ jobs:
       - run: sh tools/fetch-sst.sh .cache/sst
       - run: go test -run TestSingleStep8088 ./cpu/
         env:
-          GO2DOS_SST_DIR: .cache/sst
+          GO2DOS_SST_DIR: ${{ github.workspace }}/.cache/sst
