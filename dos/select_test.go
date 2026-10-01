@@ -56,7 +56,7 @@ func TestTextSelectionMultiLine(t *testing.T) {
 	// Select from "First" on line 0 to "Second" on line 1
 	ts := &TextSelection{StartX: 0, StartY: 0, EndX: 5, EndY: 1}
 	selected := ts.GetSelectedText(screen)
-
+	
 	// Expected: "First line\nSecond"
 	expected := "First line\nSecond"
 	if selected != expected {
