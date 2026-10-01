@@ -1,6 +1,6 @@
 # UTF-8 file names for DOS programs (draft 0.1)
 
-Status: draft, implemented nowhere yet. Comments welcome. The goal is an
+Status: draft; implemented in go2dos (`dos/utf8names.go`). Comments welcome. The goal is an
 extension small enough to be added to any DOS that has the long file name
 (LFN) API — emulators with host file systems (go2dos, DOSBox-X), DOSLFN on
 FreeDOS or MS-DOS — and to LFN-aware programs, without rewriting either.
@@ -98,7 +98,11 @@ strings and needs no change.
 
 ## Open points
 
-- Verify the AMIS details above against the AMIS 3.6 text before freezing
-  version 1.0.
+- ~~Verify the AMIS details above against the AMIS 3.6 text~~ Done (go2dos,
+  from the RBIL text of AMIS 3.6): the signature is 8 + 8 bytes plus an ASCIIZ
+  description, the installation check returns AL=FFh, CX=version, DX:DI=signature;
+  functions 10h-FFh are private to the provider. The provider also answers the
+  standard functions 01h-06h (the handler carries the IBM interrupt sharing
+  protocol header).
 - Whether to also report UTF-8 mode through `INT 21h AX=71A0h` (volume
   information flags).
