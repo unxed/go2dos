@@ -137,3 +137,28 @@ func TestRendererSelectionNeedsFrame(t *testing.T) {
 		t.Error("overlay accepted before any frame was drawn (console mode)")
 	}
 }
+
+// Ctrl-] y, p, x type Ctrl-Ins, Shift-Ins and Shift-Del: GNOME Terminal and xterm keep
+// the first two for the terminal's own copy and paste.
+func TestInputParserClipboardKeys(t *testing.T) {
+	page, err := cp.Get(437)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []bios.KeyEvent
+	p := &inputParser{page: page, push: func(k bios.KeyEvent) { got = append(got, k) }, cmd: func(termCmd) {}}
+	p.run(strings.NewReader("\x1dy\x1dp\x1dx"))
+	want := []struct {
+		name string
+		mods byte
+	}{{"Ins", bios.ModCtrl}, {"Ins", bios.ModLShift}, {"Del", bios.ModLShift}}
+	if len(got) != len(want) {
+		t.Fatalf("keys %v, want %d", got, len(want))
+	}
+	for i, w := range want {
+		k, _ := keys.Named(w.name, w.mods)
+		if got[i] != k {
+			t.Errorf("key %d: %+v, want %+v", i, got[i], k)
+		}
+	}
+}

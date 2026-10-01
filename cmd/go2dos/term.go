@@ -339,6 +339,13 @@ const (
 	cmdSelect // Ctrl-] s: choose a screen area with the cursor keys and copy it
 )
 
+// pushNamed types a named key with modifiers (Ctrl-] y/p/x).
+func (p *inputParser) pushNamed(name string, mods byte) {
+	if k, ok := keys.Named(name, mods); ok {
+		p.push(k)
+	}
+}
+
 // inputParser turns terminal input bytes into keystrokes.
 type inputParser struct {
 	page *cp.Codepage
@@ -429,6 +436,12 @@ func (p *inputParser) run(r io.Reader) {
 					p.cmd(cmdPaste)
 				case 's', 'S':
 					p.cmd(cmdSelect)
+				case 'y', 'Y': // Ctrl-Ins, Shift-Ins, Shift-Del for terminals that keep them for themselves
+					p.pushNamed("Ins", bios.ModCtrl)
+				case 'p', 'P':
+					p.pushNamed("Ins", bios.ModLShift)
+				case 'x', 'X':
+					p.pushNamed("Del", bios.ModLShift)
 				case hotkey:
 					p.push(keys.Ctrl(']'))
 				}

@@ -5,8 +5,9 @@
 ;
 ; Layout of the block (segment = the module's CS):
 ;   0000h..07FFh  this file (header + code, at most 2048 bytes)
-;   0800h..0BFFh  Buf: the text of the clipboard (first line is read by VC.COM)
-;   0C00h..0FFFh  scratch of the loader (the path of the file), free afterwards
+;   0800h..0FFFh  Buf: the text of the clipboard (first line is read by VC.COM).
+;                 Before the module starts the loader keeps the path of the file at
+;                 0C00h; it is not needed afterwards, so Buf may cover it.
 ; Header: 'VCX1', then entries: 3 bytes each (JMP NEAR) at 4, 7, ...
 ;
 ; Entries (G5: what is not listed is preserved; flags are destroyed unless said):
@@ -22,7 +23,7 @@
 	.CODE
 	ORG	0
 
-ClipMax	EQU	1024			; Max size of the text to paste
+ClipMax	EQU	2048			; Max size of the text to paste (the whole Buf)
 Buf	EQU	800h
 
 	DB	'VCX1'

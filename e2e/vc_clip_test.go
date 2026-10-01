@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/unxed/go2dos/dos"
@@ -112,4 +113,15 @@ func TestVC405ClipNoModule(t *testing.T) {
 func TestVC405ClipAfterExec(t *testing.T) {
 	clip := &dos.MemClipboard{Text: "after exec"}
 	clipSession(t, `<waitfor:10Quit>ver<Enter><wait:1s><Shift-Ins><waitfor:after exec>`+clipQuit, clip)
+}
+
+// A text of 1.5 KB (more than a screen row, less than a screen): the first line is
+// pasted, the rest is ignored.
+func TestVC405ClipPasteBig(t *testing.T) {
+	big := "first line"
+	for i := 0; i < 20; i++ {
+		big += "\n" + strings.Repeat("x", 74)
+	}
+	clip := &dos.MemClipboard{Text: big}
+	clipSession(t, `<waitfor:10Quit><Shift-Ins><waitfor:first line>`+clipQuit, clip)
 }
