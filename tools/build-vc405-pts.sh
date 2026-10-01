@@ -56,3 +56,23 @@ got=$(sha256sum "$work/VC.COM" | cut -d' ' -f1)
 mkdir -p "$out/bin/4.05"
 cp "$work/VC.COM" "$out/bin/4.05/VC.COM"
 echo "== VC 4.05 VC.COM побайтно как у TASM (pts-vc405-port $PTS_COMMIT)"
+
+# --- VC 4.05 с клиентом буфера обмена (T15b): наш патч поверх vc.asm ----------
+# Не побайтно как у TASM (это и есть правка), поэтому отдельный каталог bin/4.05-clip.
+# Гейты: G3 (размер) здесь; G2 (NASM) и G4 (листинги) не автоматизированы, см. DOUBTS.md.
+clip=$out/work/4.05-clip
+rm -rf "$clip"
+mkdir -p "$clip"
+cp "$src/vc.asm" "$clip/"
+# GIT_CEILING_DIRECTORIES: внутри чужого репозитория (наш .cache) git apply молча
+# пропускает файлы вне корня («Skipped patch»), поэтому git выше $clip не ищем.
+(cd "$clip" && GIT_CEILING_DIRECTORIES=$(dirname "$clip") git apply -p1 "$tp/patches/vc-4.05-clip.patch") \
+  || die "patches/vc-4.05-clip.patch не применился к vc.asm из pts-vc405-port $PTS_COMMIT"
+cmp -s "$src/vc.asm" "$clip/vc.asm" && die "patches/vc-4.05-clip.patch ничего не изменил (vc.asm совпал с pts)"
+(cd "$clip" && "$jwasm" -q -Cp -WX -e999999999 -bin -Fo"$clip/VC.COM" vc.asm) \
+  || die "JWasm не собрал VC 4.05 с буфером обмена"
+csize=$(wc -c <"$clip/VC.COM" | tr -d ' ')
+[ "$csize" -le 65280 ] || die "G3 не пройден: VC.COM с буфером обмена $csize байт, предел 65280"
+mkdir -p "$out/bin/4.05-clip"
+cp "$clip/VC.COM" "$out/bin/4.05-clip/VC.COM"
+echo "== VC 4.05 с буфером обмена: $csize байт (запас до 65280: $((65280 - csize)))"

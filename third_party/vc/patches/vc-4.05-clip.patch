@@ -1,0 +1,209 @@
+diff --git a/vc.asm b/vc.asm
+index 2954a1d..34a7fc5 100644
+--- a/vc.asm
++++ b/vc.asm
+@@ -1437,7 +1437,7 @@ FncTab	DW	4800h, F00_00		; Up
+ 	DW	5100h, F05_00		; PgDn
+ 	DW	4700h, F06_00		; Home
+ 	DW	4F00h, F07_00		; End
+-	DW	5200h, F08_00		; Ins     - select / unselect
++	DW	5200h, F08_S		; Ins     - select / unselect; Shift-Ins - paste
+ 	DW	4E2Bh, F09_00		; Grey +  - select group
+ 	DW	4A2Dh, F10_00		; Grey -  - unselect group
+ 	DW	372Ah, F76_00		; Grey *  - invert group
+@@ -1875,6 +1875,7 @@ Init12:	MOV	CL,4
+ 	MOV	BX,0FFFFh
+ 	MOV	AH,48h
+ 	INT	21h
++	SUB	BX,(ClipMax SHR 4)+2	; Reserve for the ClipPaste buffer (+MCB)
+ 	MOV	AH,48h
+ 	INT	21h
+ 	MOV	ES,AX
+@@ -24604,13 +24605,15 @@ EdKeys	DW	0013h, E01_00		; ^S
+ 	DW	7500h, E06_00		; ^End
+ 	DW	0008h, E07_00		; BackSpace
+ 	DW	0007h, E08_00		; ^G
+-	DW	5300h, E08_00		; Del
++	DW	5300h, E16_00		; Del, Shift-Del - cut
+ 	DW	0019h, E09_00		; ^Y
+ 	DW	000Bh, E10_00		; ^K
+ 	DW	0017h, E11_00		; ^W
+ 	DW	007Fh, E11_00		; ^BackSpace
+ 	DW	0014h, E12_00		; ^T
+ 	DW	0011h, E13_00		; ^Q
++	DW	5200h, E14_00		; Shift-Ins - paste
++	DW	9200h, E15_00		; Ctrl-Ins - copy
+ 	DW	0
+ 
+ 	.CODE
+@@ -24717,6 +24720,170 @@ E13_00:	MOV	DS:[MD.Quote],1		; ^Q
+ 	JMP	E00_04
+ ;EdLin	ENDP
+ 
++;---------------- Clipboard (WinOldAp) -----------------
++; INT 2Fh AX=17xxh, format 7 (CF_OEMTEXT). Without a server nothing happens.
++; Line editing: Ctrl-Ins - copy the line, Shift-Ins - paste, Shift-Del - cut.
++ClipMax	EQU	1024			; Max size of the text to paste
++
++E14_00:	CALL	ClipShift		; Shift-Ins - paste
++	JE	E00_04
++	CALL	ClipPaste
++	JMP	E00_06
++E15_00:	CALL	ClipCopy		; Ctrl-Ins - copy
++	JMP	E00_04
++E16_00:	CALL	ClipShift		; Shift-Del - cut, Del - delete a char
++	JE	E08_00
++	CALL	ClipCopy
++	JC	E08_00			; No clipboard: only delete a char
++	MOV	BYTE PTR ES:[DI],0
++	XOR	DX,DX
++	JMP	E00_06
++F08_S:	CALL	ClipShift		; Shift-Ins - paste to the command line
++	JE	F08_00
++	JMP	F73_00
++
++; Shift pressed?  ZF=0 - yes.  Destroys: flags.
++ClipShift:
++	PUSH	AX
++	MOV	AH,2
++	INT	16h
++	TEST	AL,3
++	POP	AX
++	RET
++
++; INT 2Fh keeping all registers except AX, DX.
++ClipInt:
++	PUSH	BX
++	PUSH	CX
++	PUSH	SI
++	PUSH	DI
++	PUSH	BP
++	PUSH	DS
++	PUSH	ES
++	INT	2Fh
++	POP	ES
++	POP	DS
++	POP	BP
++	POP	DI
++	POP	SI
++	POP	CX
++	POP	BX
++	RET
++
++; Open the clipboard.  CF=1 - no clipboard.  Destroys: AX, DX, flags.
++ClipOpen:
++	MOV	AX,1700h
++	CALL	ClipInt
++	CMP	AX,1700h
++	JE	CO_01
++	MOV	AX,1701h
++	CALL	ClipInt
++	OR	AX,AX
++	JNE	CO_02
++CO_01:	STC
++CO_02:	RET
++
++; Copy the line ES:DI (ASCIIZ) to the clipboard; an empty line is not copied.
++; CF=1 - no clipboard.  Destroys: flags.
++ClipCopy:
++	CMP	BYTE PTR ES:[DI],0
++	JE	CC_09
++	PUSH	AX
++	PUSH	BX
++	PUSH	CX
++	PUSH	DX
++	PUSH	SI
++	PUSH	DI
++	CALL	ClipOpen
++	JC	CC_08
++	MOV	BX,DI
++	XOR	AL,AL
++	MOV	CX,0FFFFh
++	CLD
++	REPNE	SCASB
++	NOT	CX			; Length with the final 0
++	MOV	AX,1702h		; Empty
++	CALL	ClipInt
++	MOV	AX,1703h		; Set: DX - format, ES:BX - data, SI:CX - size
++	MOV	DX,7
++	XOR	SI,SI
++	CALL	ClipInt
++	MOV	AX,1708h		; Close
++	CALL	ClipInt
++	CLC
++CC_08:	POP	DI
++	POP	SI
++	POP	DX
++	POP	CX
++	POP	BX
++	POP	AX
++CC_09:	RET
++
++; Insert the first line of the clipboard text into the line ES:DI at the cursor
++; DX; CX - max length of the line, as for EdLin.  Returns DX.  Destroys: flags.
++ClipPaste:
++	PUSH	AX
++	PUSH	BX
++	PUSH	SI
++	PUSH	BP
++	PUSH	DX			; Cursor
++	XOR	BP,BP			; Segment of the text, 0 - none
++	CALL	ClipOpen
++	JC	CP_03
++	MOV	AX,1704h		; Size: DX:AX
++	MOV	DX,7
++	CALL	ClipInt
++	OR	DX,DX
++	JNE	CP_02
++	CMP	AX,1
++	JBE	CP_02
++	CMP	AX,ClipMax
++	JA	CP_02
++	MOV	BX,ClipMax/16
++	MOV	AH,48h			; Memory for the text
++	INT	21h
++	JC	CP_02
++	MOV	BP,AX
++	PUSH	ES
++	MOV	ES,AX
++	XOR	BX,BX
++	MOV	BYTE PTR ES:[BX],0
++	MOV	DX,7
++	MOV	AX,1705h		; Get: ES:BX - buffer
++	CALL	ClipInt
++	POP	ES
++CP_02:	MOV	AX,1708h		; Close
++	CALL	ClipInt
++CP_03:	POP	DX
++	OR	BP,BP
++	JE	CP_09
++	XOR	BX,BX
++CP_04:	PUSH	DS
++	MOV	DS,BP
++	MOV	AL,DS:[BX]
++	POP	DS
++	CMP	AL,' '
++	JB	CP_05			; End of the first line
++	INC	BX
++	XOR	AH,AH
++	PUSH	BX
++	MOV	SI,DI
++	CALL	EdLin
++	POP	BX
++	JC	CP_04
++CP_05:	PUSH	ES
++	PUSH	DX
++	MOV	ES,BP
++	MOV	AH,49h			; Free the memory
++	INT	21h
++	POP	DX
++	POP	ES
++CP_09:	POP	BP
++	POP	SI
++	POP	BX
++	POP	AX
++	RET
++
+ EdSub1	PROC	NEAR
+ 	ADD	DI,DX
+ 	MOV	SI,DI

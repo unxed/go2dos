@@ -47,6 +47,9 @@ JWasm собирается из исходников (Sybase Open Watcom Public 
   `.DATA`/`.CONST` не сбрасывают `ASSUME CS`.
 - `patches/vc-4.05-jwasm.patch` — перенос 4.05 с синтаксиса TASM на JWasm
   (54 изменённые строки в 8 файлах, функциональных изменений нет).
+- `patches/vc-4.05-clip.patch` — к pts-vc405-port (`vc.asm`): клиент буфера
+  обмена `INT 2Fh/17xx` в полях ввода (`Ctrl-Ins`, `Shift-Ins`, `Shift-Del`); собирает
+  `tools/build-vc405-pts.sh` в `bin/4.05-clip/VC.COM` (≤ 65280, гейт G3).
 - `LICENSE`, `NOTICE`.
 
 Патчи — байтовые (`.gitattributes`: `-text`): исходники VC в CP866 с CRLF.
