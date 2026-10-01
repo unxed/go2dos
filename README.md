@@ -126,7 +126,7 @@ VC сам настоящих UTF-8 имён не показывает: видн�
 
 ```sh
 go build ./cmd/go2dos
-./go2dos /path/to/VC.COM            # каталог программы становится C:
+./go2dos /path/to/VC.COM            # для сборки VC.COM: tools/build-vc.sh, каталог программы становится C:
 ./go2dos -drive C=dir -drive D=other C:\VC.COM
 ```
 
