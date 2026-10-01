@@ -10,20 +10,10 @@ type Clipboard interface {
 	SetText(string) error
 }
 
-// ClipboardExtended extends Clipboard with file transfer support.
-type ClipboardExtended interface {
-	Clipboard
-	GetFiles() ([]string, error)
-	SetFiles(paths []string) error
-	IsDragDropAvailable() bool
-	OnDragDrop(paths []string) bool
-}
-
-// MemoryClipboard keeps text and files in memory only.
+// MemoryClipboard keeps the text in memory only.
 type MemoryClipboard struct {
-	mu    sync.Mutex
-	text  string
-	files []string
+	mu   sync.Mutex
+	text string
 }
 
 func (c *MemoryClipboard) GetText() (string, error) {
@@ -37,31 +27,4 @@ func (c *MemoryClipboard) SetText(s string) error {
 	defer c.mu.Unlock()
 	c.text = s
 	return nil
-}
-
-func (c *MemoryClipboard) GetFiles() ([]string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if len(c.files) == 0 {
-		return []string{}, nil
-	}
-	result := make([]string, len(c.files))
-	copy(result, c.files)
-	return result, nil
-}
-
-func (c *MemoryClipboard) SetFiles(paths []string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.files = make([]string, len(paths))
-	copy(c.files, paths)
-	return nil
-}
-
-func (c *MemoryClipboard) IsDragDropAvailable() bool {
-	return false
-}
-
-func (c *MemoryClipboard) OnDragDrop(paths []string) bool {
-	return false
 }

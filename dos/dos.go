@@ -1,4 +1,4 @@
-// Package dos implements a high-level-emulated DOS kernel (INT 20h/21h/2Dh/2Fh
+// Package dos implements a high-level-emulated DOS kernel (INT 20h/21h/2Fh
 // and friends) on top of host directories.
 package dos
 
@@ -48,32 +48,20 @@ type Config struct {
 	// AX=7100h, CF=1, as a DOS without LFN does (for programs that must be
 	// checked without long names, such as Norton Commander).
 	NoLFN bool
-	// HostExec enables running host commands from the built-in shell.
-	HostExec bool
 	// NotReady and WriteProtect list drives that fail like a floppy drive
 	// with no disk ("drive not ready", INT 24h error 02h) or with a
 	// write-protected disk (error 00h on writes). DOS then calls INT 24h
 	// (crit.go). Without such drives no critical error ever occurs.
 	NotReady     map[byte]bool
 	WriteProtect map[byte]bool
-	// Pipe enables pipe mode: stdin/stdout/stderr are connected to host streams
-	// with OEM ↔ UTF-8 translation.
-	Pipe bool
-}
-
-// amisProvider describes an AMIS (Alternate Multiplex Interrupt Specification)
-// provider: a named extension accessible through INT 2Dh.
-type amisProvider struct {
-	// multiplex is the AH value used to reach this provider.
-	multiplex byte
-	// mfr is the 8-byte manufacturer name (space-padded).
-	mfr [8]byte
-	// product is the 8-byte product name (space-padded).
-	product [8]byte
-	// desc is an optional ASCIZ description in DOS memory.
-	desc string
-	// sigAddr is the linear address in DOS memory where the 16-byte signature is stored.
-	sigAddr uint32
+	// Clipboard is the host clipboard that the WinOldAp server (INT 2Fh
+	// AX=17xxh) works on; nil means "not installed" (clip.go).
+	Clipboard Clipboard
+	// HostExec lets the built-in COMMAND.COM run commands of the host: a
+	// line starting with "!", or a command that is no DOS program but is in
+	// the host PATH (hostexec.go). It leaves the sandbox, so it is off by
+	// default.
+	HostExec bool
 }
 
 // DOS is the kernel state.
@@ -111,6 +99,10 @@ type DOS struct {
 	anyFault  bool
 	errorMode bool // INT 24h is running
 	crit      critState
+	shells    map[uint16]*shellState // built-in COMMAND.COM instances by PSP (shell.go)
+	shellTrap uint16
+	clip      Clipboard
+	clipOpen  bool
 	utf8      map[uint16]bool     // processes with UTF-8 file names (utf8names.go)
 	amis      map[byte]*amisEntry // AMIS providers by multiplex number (amis.go)
 	amisHooks uint16
@@ -121,16 +113,11 @@ type DOS struct {
 	breakChar bool                // Ctrl-Break seen by INT 1Bh: ^C is waiting for DOS
 	finds     map[uint16]*lfnFind // open long-name searches (71xx filefind handles)
 	nextFind  uint16
-
-	// AMIS providers indexed by multiplex number.
-	amisProviders [256]*amisProvider
-	// nextAMIS is the next free multiplex number to assign.
-	nextAMIS byte
 }
 
 // New installs the kernel.
 func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
-	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN, hostExec: cfg.HostExec}
+	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN, clip: cfg.Clipboard, hostExec: cfg.HostExec}
 	fs, err := newFS(e, cfg)
 	if err != nil {
 		return nil, err
@@ -177,20 +164,7 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 		}
 	}
 
-	// Initialize handles 0, 1, 2 based on mode
-	if cfg.Pipe {
-		// Pipe mode: stdin, stdout, stderr connected to host streams
-		d.sft = []*openFile{
-			{dev: devStdIn, name: "STDIN", refs: 1},
-			{dev: devStdOut, name: "STDOUT", refs: 1},
-			{dev: devStdErr, name: "STDERR", refs: 1},
-			{dev: devNUL, name: "AUX", refs: 1},
-			{dev: devNUL, name: "PRN", refs: 1},
-		}
-	} else {
-		// Normal mode: all three handles point to CON
-		d.sft = []*openFile{{dev: devCON, refs: 3}, {dev: devNUL, name: "AUX", refs: 1}, {dev: devNUL, name: "PRN", refs: 1}}
-	}
+	d.sft = []*openFile{{dev: devCON, refs: 3}, {dev: devNUL, name: "AUX", refs: 1}, {dev: devNUL, name: "PRN", refs: 1}}
 	d.strategy = 0
 
 	e.HookInt(0x20, "int20", d.int20)
@@ -200,6 +174,8 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 	// INT 24h by default: the kernel handler always answers Fail (RBIL Int 24).
 	e.HookInt(0x24, "int24", func(e *hle.Env) error { e.CPU.SetAL(3); return nil })
 	d.installCrit(e)
+	d.shells = map[uint16]*shellState{}
+	d.shellTrap = e.Register("shell", d.shellStep)
 	d.installAMIS(e)
 	d.installUTF8Names()
 	e.HookInt(0x25, "int25", func(e *hle.Env) error { return hle.Unsupported("INT 25h absolute disk read") })
@@ -207,20 +183,12 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 	e.HookInt(0x27, "int27", d.int27)
 	e.HookInt(0x28, "int28", func(e *hle.Env) error { e.Idle(); return nil })
 	e.HookInt(0x29, "int29", func(e *hle.Env) error { d.conWrite([]byte{e.CPU.AL()}); return nil })
-	e.HookInt(0x2D, "int2D", d.int2D)
 	e.HookInt(0x2F, "int2F", d.int2F)
-
-	// Register AMIS providers
-	var utf8mfr [8]byte
-	var utf8prod [8]byte
-	copy(utf8mfr[:], []byte("DOS-UTF8"))
-	copy(utf8prod[:], []byte("NAMES   "))
-	d.registerAMISProvider(utf8mfr, utf8prod, "UTF-8 file name support v1.0")
-
 	// Lenient mode: an unsupported INT 21h call fails with "invalid function".
 	e.Fallback("int21", func(e *hle.Env) error { d.fail(e, errInvalidFunc); return nil })
 	iret := e.Emit([]byte{0xCF})
 	e.SetVector(0x2A, hle.ROMSeg, iret)
+	d.installHostExecAPI()
 	return d, nil
 }
 
@@ -643,6 +611,7 @@ func (d *DOS) terminateAs(code, typ byte) {
 	keep := typ == 3
 	d.errorMode = false
 	d.cc = nil
+	delete(d.shells, d.psp)
 	delete(d.utf8, d.psp) // UTF-8 names end with the process
 	d.exit = code
 	d.exitType = typ
@@ -667,91 +636,3 @@ func (d *DOS) setDTA(seg, off uint16) {
 
 // PSP returns the segment of the current process's PSP.
 func (d *DOS) PSP() uint16 { return d.psp }
-
-// registerAMISProvider registers an AMIS provider and returns its multiplex number
-// (AH value). The signature is stored in DOS memory and DX:DI will point to it.
-func (d *DOS) registerAMISProvider(mfr, product [8]byte, desc string) byte {
-	if d.nextAMIS == 0xFF {
-		return 0xFF // no more slots
-	}
-	multiplex := d.nextAMIS
-	d.nextAMIS++
-
-	// Allocate ROM space for the signature (16 bytes + description).
-	// The signature layout: [8 mfr][8 product][desc ASCIZ]
-	sigData := make([]byte, 16+len(desc)+1)
-	copy(sigData[0:], mfr[:])
-	copy(sigData[8:], product[:])
-	copy(sigData[16:], desc)
-	sigData[16+len(desc)] = 0 // ASCIZ terminator
-
-	sigAddr := d.e.Emit(sigData)
-	provider := &amisProvider{
-		multiplex: multiplex,
-		mfr:       mfr,
-		product:   product,
-		desc:      desc,
-		sigAddr:   mem.Lin(hle.ROMSeg, sigAddr),
-	}
-	d.amisProviders[multiplex] = provider
-	return multiplex
-}
-
-// int2D is the AMIS (Alternate Multiplex Interrupt Specification) dispatcher.
-// It multiplexes calls to registered providers based on AH value.
-// Unknown providers return no change (installation check failure).
-func (d *DOS) int2D(e *hle.Env) error {
-	c := e.CPU
-	ah := c.R[cpu.AX] >> 8
-	al := c.AL()
-	provider := d.amisProviders[ah]
-
-	switch al {
-	case 0x00: // Installation check
-		if provider == nil {
-			// Free slot: leave AL=00 and other registers unchanged
-			return nil
-		}
-		// Occupied: AL=FFh, CX=version, DX:DI=signature address
-		c.SetAL(0xFF)
-		c.R[cpu.CX] = 0x0100 // version 1.0: CH=1 (major), CL=0 (minor)
-		// Set DX:DI to point to the signature (which is in ROM)
-		c.R[cpu.DX] = hle.ROMSeg
-		c.R[cpu.DI] = uint16(provider.sigAddr & 0xFFFF)
-		e.Note("AMIS %02Xh: found %s/%s", ah, strings.TrimRight(string(provider.mfr[:]), " "), strings.TrimRight(string(provider.product[:]), " "))
-		return nil
-
-	case 0x01: // Direct entry (optional)
-		// We require using INT 2Dh for all calls, so return AL=00h (not supported).
-		c.SetAL(0x00)
-		return nil
-
-	case 0x02: // Uninstall request
-		if provider == nil {
-			return nil // Not our problem
-		}
-		// Our providers are built-in and not removable.
-		// Return AL=03h (Cannot uninstall - system driver).
-		c.SetAL(0x03)
-		return nil
-
-	case 0x04: // List of intercepted interrupts
-		if provider == nil {
-			return nil
-		}
-		// Return a list of 3-byte records: interrupt number + 2-byte offset (0x0000 for us).
-		// Last entry is 0x2Dh.
-		// Our providers only "intercept" INT 2Dh itself.
-		// Format: [byte interrupt][word handler_offset] per entry, ended with 0x2Dh.
-		// Since we don't have per-interrupt handling, we just report 2Dh.
-		list := []byte{0x2D, 0x00, 0x00}
-		addr := e.DSDX()
-		e.Mem.SetBytes(addr, list)
-		c.R[cpu.DX], c.R[cpu.BX] = c.Seg(cpu.DS), c.R[cpu.DX]
-		c.SetAL(0x04)
-		return nil
-	}
-
-	// Unknown function: leave registers unchanged
-	return nil
-}

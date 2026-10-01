@@ -2,191 +2,131 @@ package main
 
 import (
 	"bufio"
-	"fmt"
+	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
 	"github.com/unxed/go2dos/bios"
 	"github.com/unxed/go2dos/cp"
-	"github.com/unxed/go2dos/frontend"
 	"github.com/unxed/go2dos/keys"
 	"github.com/unxed/go2dos/machine"
 
 	"golang.org/x/term"
 )
 
-// termHost is the plain ANSI terminal front end (frontend.Host and
-// frontend.Console).
+// termHost is the plain ANSI terminal front end (frontend.Host,
+// frontend.Console and frontend.Attacher).
 type termHost struct {
-	rend      *renderer
-	sel       *selectionHandler
-	m         *machine.Machine
-	clipboard frontend.Clipboard
+	rend *renderer
+	in   *stdinReader
+
+	fd       int
+	st       *term.State
+	undoVT   func()
+	altOn    bool // the alternate screen is shown
+	attached atomic.Bool
+	until    atomic.Int64 // UnixNano: SIGINT sent during the command may still be delivered shortly after it ends
 }
+
+// sigGrace — сколько после конца команды SIGINT ещё считается её сигналом.
+const sigGrace = 200 * time.Millisecond
 
 func newTermHost(w io.Writer) *termHost {
-	return &termHost{
-		rend:      newRenderer(w),
-		sel:       newSelectionHandler(),
-		clipboard: &frontend.HostClipboard{},
-	}
+	return &termHost{rend: newRenderer(w), in: newStdinReader(os.Stdin)}
 }
 
-func (h *termHost) Draw(s *bios.Screen) {
-	h.rend.draw(s)
-	h.sel.updateScreen(s)
-}
+func (h *termHost) Draw(s *bios.Screen)                { h.rend.draw(s) }
 func (h *termHost) Stream(b []byte, page *cp.Codepage) { h.rend.stream(b, page) }
-func (h *termHost) Display(grid bool)                  { h.rend.display(grid) }
+
+func (h *termHost) Display(grid bool) {
+	h.rend.display(grid)
+	h.altOn = grid
+}
 
 func (h *termHost) Start(m *machine.Machine, display string, stop func(dump bool)) (func(), error) {
-	h.m = m
-	h.sel.updateScreen(m.Screen())
-	restore, err := setupTerminal(display != "console")
+	restore, err := h.setup(display != "console")
 	if err != nil {
 		return nil, err
 	}
-	p := &inputParser{
-		page: m.CP,
-		push: func(ke bios.KeyEvent) {
-			// Handle terminal integration (Shift+Arrow, Ctrl-V)
-			if !h.handleTerminalIntegration(ke) {
-				m.PushKey(ke)
-			}
-		},
-		cmd: func(c termCmd) { stop(c == cmdDump) },
-	}
-	go p.run(os.Stdin)
+	p := &inputParser{page: m.CP, push: m.PushKey, cmd: func(c termCmd) { stop(c == cmdDump) }}
+	go p.run(h.in)
 	return restore, nil
 }
 
-// handleTerminalIntegration processes terminal integration keys (Shift+Arrow for selection, Ctrl-V for paste).
-// Returns true if the key was handled, false if it should be passed to the machine.
-func (h *termHost) handleTerminalIntegration(ke bios.KeyEvent) bool {
-	scr := h.m.Screen()
-
-	// Ctrl-V for pasting from clipboard
-	if ke.Scan == 0x2F && ke.Mods&bios.ModCtrl != 0 { // V with Ctrl
-		h.pasteClipboard()
-		return true
-	}
-
-	// Shift+Arrow keys for text selection
-	switch ke.Scan {
-	case 0x48: // Up arrow
-		if ke.Mods&bios.ModLShift != 0 {
-			if !h.sel.isActive() {
-				h.sel.toggleSelectionMode()
-				h.sel.startSelection(scr.CursorX, scr.CursorY)
-			}
-			h.sel.extendSelection(scr.CursorX, scr.CursorY-1)
-			return true
-		}
-	case 0x50: // Down arrow
-		if ke.Mods&bios.ModLShift != 0 {
-			if !h.sel.isActive() {
-				h.sel.toggleSelectionMode()
-				h.sel.startSelection(scr.CursorX, scr.CursorY)
-			}
-			h.sel.extendSelection(scr.CursorX, scr.CursorY+1)
-			return true
-		}
-	case 0x4B: // Left arrow
-		if ke.Mods&bios.ModLShift != 0 {
-			if !h.sel.isActive() {
-				h.sel.toggleSelectionMode()
-				h.sel.startSelection(scr.CursorX, scr.CursorY)
-			}
-			h.sel.extendSelection(scr.CursorX-1, scr.CursorY)
-			return true
-		}
-	case 0x4D: // Right arrow
-		if ke.Mods&bios.ModLShift != 0 {
-			if !h.sel.isActive() {
-				h.sel.toggleSelectionMode()
-				h.sel.startSelection(scr.CursorX, scr.CursorY)
-			}
-			h.sel.extendSelection(scr.CursorX+1, scr.CursorY)
-			return true
-		}
-	}
-
-	// ESC to end selection
-	if ke.Scan == 0x01 && ke.Mods == 0 { // ESC
-		if h.sel.isActive() {
-			h.sel.endSelection()
-			return true
-		}
-	}
-
-	return false
-}
-
-// pasteClipboard reads text from the host clipboard and converts it to keystrokes,
-// sending them to the machine in portions (max 15 keystrokes at a time to fit in the BIOS buffer).
-func (h *termHost) pasteClipboard() {
-	text, err := h.clipboard.GetText()
-	if err != nil {
-		// Silently fail if clipboard is not available
-		return
-	}
-
-	// Convert text to keystrokes
-	const maxPortion = 15 // BIOS keyboard buffer holds 15 keystrokes
-	var pending []bios.KeyEvent
-
-	for _, r := range text {
-		if r == '\n' {
-			// Convert newline to Enter key
-			if k, ok := keys.Named("Enter", 0); ok {
-				pending = append(pending, k)
-			}
-		} else if r < 0x80 {
-			// ASCII character
-			if k, ok := keys.Char(r, h.m.CP); ok {
-				pending = append(pending, k)
-			}
-		}
-
-		// Send in portions to avoid filling the BIOS buffer
-		if len(pending) >= maxPortion {
-			for _, ke := range pending {
-				h.m.PushKey(ke)
-			}
-			pending = pending[:0]
-			// Small delay to allow buffer processing
-			time.Sleep(5 * time.Millisecond)
-		}
-	}
-
-	// Send remaining keystrokes
-	for _, ke := range pending {
-		h.m.PushKey(ke)
-	}
-}
-
-func setupTerminal(alt bool) (func(), error) {
-	fd := int(os.Stdin.Fd())
-	st, err := term.MakeRaw(fd)
+// setup puts the terminal in raw mode (and on the alternate screen with alt).
+func (h *termHost) setup(alt bool) (func(), error) {
+	h.fd = int(os.Stdin.Fd())
+	st, err := term.MakeRaw(h.fd)
 	if err != nil {
 		return nil, err
 	}
-	undoVT := enableVT()
+	h.st = st
+	h.undoVT = enableVT()
 	if alt {
-		fmt.Print("\x1b[?1049h\x1b[2J")
+		h.Display(true)
 	}
 	return func() {
-		if alt {
-			fmt.Print("\x1b[0m\x1b[?25h\x1b[?1049l")
+		if h.altOn {
+			h.Display(false)
 		}
-		undoVT()
-		term.Restore(fd, st)
+		h.undoVT()
+		term.Restore(h.fd, h.st)
 	}, nil
+}
+
+// Attached reports whether a host command owns the terminal (or ended a
+// moment ago: Go delivers a signal to its handler asynchronously, and a
+// Ctrl-C meant for a short command must not stop the emulator).
+func (h *termHost) Attached() bool {
+	return h.attached.Load() || time.Now().UnixNano() < h.until.Load()
+}
+
+// RunAttached gives the terminal to cmd: the input reader is paused (so it
+// cannot take the command's first keystroke), the alternate screen is left,
+// cooked mode is restored, cmd runs on the real terminal; afterwards raw mode,
+// the alternate screen and the reader come back. Call it from the machine
+// goroutine, so that no frame is drawn meanwhile.
+func (h *termHost) RunAttached(cmd *exec.Cmd) error {
+	h.attached.Store(true)
+	defer func() {
+		h.until.Store(time.Now().Add(sigGrace).UnixNano())
+		h.attached.Store(false)
+	}()
+	h.in.pause()
+	defer h.in.resume()
+	grid := h.altOn
+	if grid {
+		h.rend.display(false)
+	}
+	if err := term.Restore(h.fd, h.st); err != nil {
+		return err
+	}
+	if cmd.Stdin == nil {
+		cmd.Stdin = os.Stdin
+	}
+	if cmd.Stdout == nil {
+		cmd.Stdout = os.Stdout
+	}
+	if cmd.Stderr == nil {
+		cmd.Stderr = os.Stderr
+	}
+	runErr := cmd.Run()
+	st, err := term.MakeRaw(h.fd)
+	if err != nil {
+		return errors.Join(runErr, err)
+	}
+	h.st = st
+	if grid {
+		h.rend.display(true)
+	}
+	return runErr
 }
 
 // renderer draws screen snapshots on an ANSI terminal, sending only the

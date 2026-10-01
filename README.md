@@ -38,6 +38,10 @@ go build ./cmd/go2dos
 ./go2dos -lenient -headless -timeout 20s -keys '<waitfor:10Quit><F10>' VC.COM
 ```
 
+Фронтенд на `vtui` (вложенный модуль `cmd/go2dos-vtui`, основной модуль vtui не
+тянет): `cd cmd/go2dos-vtui && go build -tags vtui_noebiten,vtui_nogogpu,vtui_nococoa`.
+Подробности — [docs/FRONTEND.md](docs/FRONTEND.md).
+
 Флаги: `go2dos -h`. Формат скриптов клавиш — в пакете `keys`.
 
 ## Использование как библиотеки

@@ -56,12 +56,13 @@ type Config struct {
 	// Clipboard is the host clipboard for the WinOldAp server (INT 2Fh
 	// AX=17xxh); nil leaves the API "not installed".
 	Clipboard Clipboard
+	// HostExec lets the built-in COMMAND.COM run host commands ("!cmd" or a
+	// command found in the host PATH): an exit from the sandbox, off by default.
+	HostExec bool
 	// Lenient makes unsupported INT 21h/10h/15h/16h/... calls non-fatal: they
 	// are written to the trace, answered "not supported" and summed up in
 	// Unsupported. Without it the machine stops on the first one (fail fast).
 	Lenient bool
-	// HostExec enables running host commands from the built-in shell.
-	HostExec bool
 	// NoLFN turns the long-name API (INT 21h AH=71h) off: every call answers
 	// AX=7100h, CF=1 ("not supported"), and 71A0h does not announce LFN.
 	NoLFN bool
@@ -84,9 +85,6 @@ type Config struct {
 	Display   string
 	OnStream  func(b []byte)
 	OnDisplay func(grid bool)
-	// Pipe enables pipe mode: stdin/stdout/stderr are connected to host streams
-	// with OEM ↔ UTF-8 translation. Set by the CLI when stdin is not a terminal.
-	Pipe bool
 	// Break lists CS:IP addresses (CS<<16 | IP); reaching one logs the
 	// registers to the trace (diagnostics).
 	Break []uint32
@@ -226,8 +224,8 @@ func New(cfg Config) (*Machine, error) {
 	if env == nil {
 		env = []string{`COMSPEC=C:\COMMAND.COM`, `PATH=C:\`, `PROMPT=$P$G`}
 	}
-	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env, Labels: cfg.Labels, NoLFN: cfg.NoLFN, HostExec: cfg.HostExec,
-		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect})
+	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env, Labels: cfg.Labels, NoLFN: cfg.NoLFN,
+		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect, Clipboard: cfg.Clipboard, HostExec: cfg.HostExec})
 	if err != nil {
 		return nil, err
 	}

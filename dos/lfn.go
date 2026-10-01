@@ -426,10 +426,6 @@ func (d *DOS) lfn(e *hle.Env) error {
 		return nil
 	}
 	switch al := c.AL(); al {
-	case 0x00: // LFN support check
-		e.Note("LFN 7100h (support check)")
-		c.R[cpu.AX] = 0
-		e.SetCF(false)
 	case 0x0D: // reset drive
 		d.ok(e)
 	case 0x39: // mkdir
@@ -532,12 +528,6 @@ func (d *DOS) lfn(e *hle.Env) error {
 		e.Note("%c:", 'A'+root.drive)
 		c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX] = 0, lfnFlags, maxLFNName, maxLFNPath
 		d.ok(e)
-	case 0xA6: // get file info by handle
-		return d.lfnGetFileInfoByHandle(e)
-	case 0xA7: // convert time
-		return d.lfnConvertTime(e)
-	case 0xA8: // generate short name
-		return d.lfnGenerateShortName(e)
 	default:
 		// The documented answer of a DOS without that LFN function.
 		e.Note("LFN 71%02Xh not supported", al)
@@ -876,68 +866,6 @@ func (d *DOS) lfnTrueName(e *hle.Env) error {
 		return nil
 	}
 	e.Mem.SetBytes(mem.Lin(e.Seg(cpu.ES), c.R[cpu.DI]), append(out, 0))
-	d.ok(e)
-	return nil
-}
-
-// lfnGetFileInfoByHandle is 71A6h: Get file info by handle.
-// Input: BX = handle, SI = 0 for 64-bit file time, 1 for MS-DOS date/time
-// Output: Similar to FindFirst/FindNext (RBIL table 01779)
-func (d *DOS) lfnGetFileInfoByHandle(e *hle.Env) error {
-	c := e.CPU
-	h := c.R[cpu.BX]
-	of, errc := d.handle(h)
-	if errc != 0 {
-		d.fail(e, errc)
-		return nil
-	}
-	
-	// Get file info from the host file
-	st, err := os.Stat(of.host)
-	if err != nil {
-		d.fail(e, errFileNotFound)
-		return nil
-	}
-	
-	// Create a match entry for putFindData
-	m := lfnMatch{
-		long: filepath.Base(of.host),
-		short: filepath.Base(of.host),
-		attr: attrOf(dirEntry{info: st}),
-		info: st,
-	}
-	
-	dosFmt := c.R[cpu.SI] == 1
-	out := mem.Lin(e.Seg(cpu.ES), c.R[cpu.DI])
-	flags := d.putFindData(out, m, dosFmt)
-	c.R[cpu.CX] = flags
-	d.ok(e)
-	return nil
-}
-
-// lfnConvertTime is 71A7h: Convert file time formats.
-// Minimal implementation - just return success and echo back values
-func (d *DOS) lfnConvertTime(e *hle.Env) error {
-	// This function converts between DOS time and Windows FILETIME
-	// For now, we'll just return success without actual conversion
-	// since the host already uses the correct time formats
-	d.ok(e)
-	return nil
-}
-
-// lfnGenerateShortName is 71A8h: Generate 8.3 short name from long name.
-// Input: DS:SI = long name, CL = options
-// Output: ES:DI = short name
-func (d *DOS) lfnGenerateShortName(e *hle.Env) error {
-	c := e.CPU
-	longName := d.lfnStr(e.Seg(cpu.DS), c.R[cpu.SI])
-	
-	// Use the existing trunc83 function to generate a short name
-	shortName := trunc83(d.e.CP.Decode(longName))
-	
-	// Return the generated short name
-	out := mem.Lin(e.Seg(cpu.ES), c.R[cpu.DI])
-	d.e.Mem.SetBytes(out, append([]byte(shortName), 0))
 	d.ok(e)
 	return nil
 }
