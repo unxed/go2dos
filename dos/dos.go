@@ -90,6 +90,7 @@ type DOS struct {
 	anyFault  bool
 	errorMode bool // INT 24h is running
 	crit      critState
+	utf8      map[uint16]bool     // processes with UTF-8 file names (utf8names.go)
 	amis      map[byte]*amisEntry // AMIS providers by multiplex number (amis.go)
 	amisHooks uint16
 	int21Off  uint16 // stub of INT 21h itself
@@ -161,6 +162,7 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 	e.HookInt(0x24, "int24", func(e *hle.Env) error { e.CPU.SetAL(3); return nil })
 	d.installCrit(e)
 	d.installAMIS(e)
+	d.installUTF8Names()
 	e.HookInt(0x25, "int25", func(e *hle.Env) error { return hle.Unsupported("INT 25h absolute disk read") })
 	e.HookInt(0x26, "int26", func(e *hle.Env) error { return hle.Unsupported("INT 26h absolute disk write") })
 	e.HookInt(0x27, "int27", d.int27)
@@ -592,6 +594,7 @@ func (d *DOS) terminateAs(code, typ byte) {
 	keep := typ == 3
 	d.errorMode = false
 	d.cc = nil
+	delete(d.utf8, d.psp) // UTF-8 names end with the process
 	d.exit = code
 	d.exitType = typ
 	if d.endChild(code, keep) {

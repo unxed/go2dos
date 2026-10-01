@@ -36,6 +36,9 @@ func (d *DOS) lfnStr(seg, off uint16) []byte {
 // oem converts a host name to the code page; lossy is true if an unmappable
 // character became '_'.
 func (f *fsys) oem(s string) (out []byte, lossy bool) {
+	if f.utf8() {
+		return []byte(s), false
+	}
 	for _, r := range s {
 		b, ok := f.e.CP.Byte(r)
 		if !ok {
@@ -75,9 +78,9 @@ func (f *fsys) findName(hostDir, name string) (dirEntry, bool, uint16) {
 	if i, ok := ix.byFold[strings.ToLower(name)]; ok {
 		return ix.entries[i], true, 0
 	}
-	if enc, ok := f.e.CP.Encode(name); ok {
+	if enc, ok := f.encodeName(name); ok {
 		for i, c := range enc {
-			enc[i] = f.e.CP.Upper(c)
+			enc[i] = f.upper(c)
 		}
 		if i, ok := ix.byDOS[string(enc)]; ok {
 			return ix.entries[i], true, 0
@@ -104,7 +107,7 @@ type lfnPath struct {
 func (f *fsys) lfnResolve(p []byte) (lfnPath, uint16) {
 	drive := f.cur
 	if len(p) >= 2 && p[1] == ':' {
-		l := f.e.CP.Upper(p[0])
+		l := f.upper(p[0])
 		if l < 'A' || l > 'Z' {
 			return lfnPath{}, errBadDrive
 		}
@@ -115,7 +118,11 @@ func (f *fsys) lfnResolve(p []byte) (lfnPath, uint16) {
 		return lfnPath{}, errBadDrive
 	}
 	root := f.drives[drive]
-	s := strings.ReplaceAll(f.e.CP.Decode(p), "/", `\`)
+	dec, ok := f.decodeName(p)
+	if !ok {
+		return lfnPath{}, errPathNotFound // invalid UTF-8
+	}
+	s := strings.ReplaceAll(dec, "/", `\`)
 	cur := root
 	if !strings.HasPrefix(s, `\`) {
 		h, _, errc := f.resolve(drive, f.cwd[drive], false)
@@ -228,7 +235,7 @@ func (f *fsys) longOf(drive int, host string) ([]byte, bool, uint16) {
 func (f *fsys) plainPath(p []byte) ([]byte, uint16) {
 	drive := f.cur
 	if len(p) >= 2 && p[1] == ':' {
-		l := f.e.CP.Upper(p[0])
+		l := f.upper(p[0])
 		if l < 'A' || l > 'Z' {
 			return nil, errPathNotFound
 		}
@@ -253,7 +260,7 @@ func (f *fsys) plainPath(p []byte) ([]byte, uint16) {
 		default:
 			up := []byte(part)
 			for i, c := range up {
-				up[i] = f.e.CP.Upper(c)
+				up[i] = f.upper(c)
 			}
 			out = append(out, string(up))
 		}
@@ -550,7 +557,11 @@ func (d *DOS) lfnDelete(e *hle.Env) uint16 {
 	if errc != 0 {
 		return errc
 	}
-	list, errc := d.lfnSearch(r.drive, r.host, d.e.CP.Decode(pat), c.CL(), c.CH())
+	pats, ok := d.fs.decodeName(pat)
+	if !ok {
+		return errPathNotFound // invalid UTF-8
+	}
+	list, errc := d.lfnSearch(r.drive, r.host, pats, c.CL(), c.CH())
 	if errc != 0 {
 		return errc
 	}
@@ -674,8 +685,13 @@ func (d *DOS) lfnFindCall(e *hle.Env) error {
 			return nil
 		}
 		allow, must := c.CL(), c.CH()
-		e.Note("%s %s attr=%02X/%02X", r.host, d.e.CP.Decode(pat), allow, must)
-		list, errc := d.lfnSearch(r.drive, r.host, d.e.CP.Decode(pat), allow, must)
+		pats, ok := d.fs.decodeName(pat)
+		if !ok {
+			d.fail(e, errPathNotFound) // invalid UTF-8
+			return nil
+		}
+		e.Note("%s %s attr=%02X/%02X", r.host, pats, allow, must)
+		list, errc := d.lfnSearch(r.drive, r.host, pats, allow, must)
 		if errc != 0 {
 			d.fail(e, errc)
 			return nil
@@ -822,7 +838,7 @@ func (d *DOS) lfnTrueName(e *hle.Env) error {
 			if !r.exists {
 				up, _ := d.fs.oem(r.name)
 				for i := range up {
-					up[i] = d.e.CP.Upper(up[i])
+					up[i] = d.fs.upper(up[i])
 				}
 				sp = strings.TrimSuffix(sp, `\`) + `\` + trunc83(string(up))
 			}

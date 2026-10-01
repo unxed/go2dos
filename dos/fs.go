@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/unxed/go2dos/hle"
 )
@@ -77,8 +78,11 @@ type fsys struct {
 	cur    int        // current drive (0 = A)
 	cwd    [26]string // per drive: "\" or "\DIR\SUB"
 	cache  map[string]*dirIndex
-	dirIDs map[string]uint16
-	dirs   []string
+	// utf8Mode tells whether the current process has UTF-8 file names on
+	// (utf8names.go); then long names are UTF-8 and short names ASCII-only.
+	utf8Mode func() bool
+	dirIDs   map[string]uint16
+	dirs     []string
 }
 
 func newFS(e *hle.Env, cfg Config) (*fsys, error) {
@@ -118,6 +122,48 @@ func newFS(e *hle.Env, cfg Config) (*fsys, error) {
 
 func (f *fsys) invalidate() { f.cache = map[string]*dirIndex{} }
 
+// utf8 reports whether the current process uses UTF-8 file names.
+func (f *fsys) utf8() bool { return f.utf8Mode != nil && f.utf8Mode() }
+
+// upper upper-cases a byte of a name: in the code page, or ASCII only in UTF-8
+// mode (the bytes of UTF-8 sequences must stay as they are).
+func (f *fsys) upper(b byte) byte {
+	if f.utf8() {
+		if b >= 'a' && b <= 'z' {
+			return b - 32
+		}
+		return b
+	}
+	return f.e.CP.Upper(b)
+}
+
+func asciiOnly(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// encodeName gives the DOS-side bytes of a host name: in the code page, or the
+// UTF-8 bytes themselves, in which case ok means "plain ASCII" (a short name).
+func (f *fsys) encodeName(name string) ([]byte, bool) {
+	if f.utf8() {
+		return []byte(name), asciiOnly(name)
+	}
+	return f.e.CP.Encode(name)
+}
+
+// decodeName converts a name that a process passed to a host string; ok is
+// false for invalid UTF-8 in UTF-8 mode.
+func (f *fsys) decodeName(p []byte) (string, bool) {
+	if f.utf8() {
+		return string(p), utf8.Valid(p)
+	}
+	return f.e.CP.Decode(p), true
+}
+
 // valid83 reports whether a DOS name (already upper case) is a plain 8.3 name.
 func valid83(n []byte) bool {
 	if len(n) == 0 {
@@ -143,10 +189,10 @@ func valid83(n []byte) bool {
 	return dot <= 8 && len(n)-dot-1 <= 3 && len(n)-dot-1 >= 1
 }
 
-func clean83(b []byte, max int) []byte {
+func (f *fsys) clean83(b []byte, max int) []byte {
 	var out []byte
 	for _, c := range b {
-		if c < 0x21 || c == '.' || strings.IndexByte(`"*+,/:;<=>?[\]|`, c) >= 0 {
+		if c < 0x21 || (c >= 0x80 && f.utf8()) || c == '.' || strings.IndexByte(`"*+,/:;<=>?[\]|`, c) >= 0 {
 			continue
 		}
 		out = append(out, c)
@@ -161,7 +207,11 @@ func clean83(b []byte, max int) []byte {
 // 8.3 in the code page keep their (upper-cased) name, the rest get NAME~N.EXT
 // aliases. The result is deterministic for a given directory content.
 func (f *fsys) index(hostDir string) (*dirIndex, uint16) {
-	if ix, ok := f.cache[hostDir]; ok {
+	key := hostDir
+	if f.utf8() {
+		key += "\x00utf8" // short names differ (ASCII only), so does the index
+	}
+	if ix, ok := f.cache[key]; ok {
 		return ix, 0
 	}
 	list, err := os.ReadDir(hostDir)
@@ -184,10 +234,10 @@ func (f *fsys) index(hostDir string) (*dirIndex, uint16) {
 		if err != nil {
 			continue
 		}
-		enc, ok := f.e.CP.Encode(de.Name())
+		enc, ok := f.encodeName(de.Name())
 		up := make([]byte, len(enc))
 		for i, c := range enc {
-			up[i] = f.e.CP.Upper(c)
+			up[i] = f.upper(c)
 		}
 		if ok && valid83(up) {
 			if _, dup := ix.byDOS[string(up)]; !dup {
@@ -202,11 +252,11 @@ func (f *fsys) index(hostDir string) (*dirIndex, uint16) {
 		if i := strings.LastIndexByte(string(p.up), '.'); i > 0 {
 			base, ext = p.up[:i], p.up[i+1:]
 		}
-		b := clean83(base, 6)
+		b := f.clean83(base, 6)
 		if len(b) == 0 {
 			b = []byte("_")
 		}
-		x := clean83(ext, 3)
+		x := f.clean83(ext, 3)
 		for n := 1; ; n++ {
 			suffix := fmt.Sprintf("~%d", n)
 			stem := b
@@ -223,7 +273,7 @@ func (f *fsys) index(hostDir string) (*dirIndex, uint16) {
 			}
 		}
 	}
-	f.cache[hostDir] = ix
+	f.cache[key] = ix
 	return ix, 0
 }
 
@@ -260,7 +310,7 @@ func attrOf(e dirEntry) byte {
 func (f *fsys) canon(p []byte, wild bool) (int, string, uint16) {
 	drive := f.cur
 	if len(p) >= 2 && p[1] == ':' {
-		l := f.e.CP.Upper(p[0])
+		l := f.upper(p[0])
 		if l < 'A' || l > 'Z' {
 			return 0, "", errBadDrive
 		}
@@ -292,7 +342,7 @@ func (f *fsys) canon(p []byte, wild bool) (int, string, uint16) {
 		}
 		up := make([]byte, len(part))
 		for j := 0; j < len(part); j++ {
-			up[j] = f.e.CP.Upper(part[j])
+			up[j] = f.upper(part[j])
 		}
 		name := string(up)
 		if strings.ContainsAny(name, "*?") && !(wild && last) {

@@ -454,19 +454,22 @@ func (d *DOS) nls(e *hle.Env) error {
 	case 0x02, 0x04:
 		a := mem.Lin(e.Seg(cpu.ES), c.R[cpu.DI])
 		e.Mem.W8(a, c.AL())
-		off := uint16(offUpper)
+		off, id := uint16(offUpper), uint16(offUpperID)
 		if c.AL() == 0x04 {
-			off = offFUpper
+			off, id = offFUpper, offFUpperID
+		}
+		if d.utf8[d.psp] {
+			off = id // UTF-8 mode: 80h-FFh map to themselves
 		}
 		e.Mem.W16(a+1, off)
 		e.Mem.W16(a+3, dataSeg)
 		c.R[cpu.CX] = 5
 	case 0x20:
-		c.SetDL(e.CP.Upper(c.DL()))
+		c.SetDL(d.fs.upper(c.DL()))
 	case 0x21:
 		a := e.DSDX()
 		for i := 0; i < int(c.R[cpu.CX]); i++ {
-			e.Mem.W8(a+uint32(i), e.CP.Upper(e.Mem.R8(a+uint32(i))))
+			e.Mem.W8(a+uint32(i), d.fs.upper(e.Mem.R8(a+uint32(i))))
 		}
 	case 0x22:
 		a := e.DSDX()
@@ -475,7 +478,7 @@ func (d *DOS) nls(e *hle.Env) error {
 			if v == 0 {
 				break
 			}
-			e.Mem.W8(a+i, e.CP.Upper(v))
+			e.Mem.W8(a+i, d.fs.upper(v))
 		}
 	default:
 		return hle.Unsupported("INT 21h AX=%04Xh (NLS)", c.R[cpu.AX])
