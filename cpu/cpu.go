@@ -71,7 +71,12 @@ type CPU struct {
 	IntrPending bool
 	Intr        func() (vector byte, ok bool)
 
-	Err      error // set when Run returns StopFault
+	Err error // set when Run returns StopFault
+
+	// BreakAt lists CS:IP addresses (CS<<16 | IP) at which Break is called
+	// before the instruction executes (a diagnostic aid; nil disables it).
+	BreakAt  map[uint32]bool
+	Break    func(c *CPU)
 	Executed uint64
 
 	// History of instruction start addresses (CS<<16 | IP), most recent last.
@@ -155,6 +160,9 @@ func (c *CPU) Step() {
 	c.shadow = false
 	tf := c.Flags&FlagTF != 0
 	c.opCS, c.opIP = c.S[CS].Sel, c.IP
+	if c.BreakAt != nil && c.BreakAt[uint32(c.opCS)<<16|uint32(c.opIP)] {
+		c.Break(c)
+	}
 	c.History[c.historyPos] = uint32(c.opCS)<<16 | uint32(c.opIP)
 	c.historyPos = (c.historyPos + 1) % HistoryLen
 	c.Executed++

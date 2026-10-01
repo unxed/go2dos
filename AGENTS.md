@@ -2,7 +2,7 @@
 
 Прочитай этот файл целиком, потом — `README.md`, `docs/DESIGN.md` (статус в
 §13), `docs/DOUBTS.md` (открытые расследования), `docs/UTF8NAMES.md`,
-`docs/TASKS.md`, `docs/SCREEN.md`, `docs/WASI-BRIDGE.md`, `docs/TRANSLATION.md`, `docs/DN-PLAN.md`,
+`docs/TASKS.md`, `docs/ASM-GATES.md`, `docs/SCREEN.md`, `docs/WASI-BRIDGE.md`, `docs/TRANSLATION.md`, `docs/DN-PLAN.md`,
 `docs/NC-TESTING.md`.
 
 ## Правила работы с владельцем
@@ -70,6 +70,17 @@ sh tools/fetch-sst.sh .cache/sst  # SingleStepTests 8088 v2, около 600 МБ
 (`INT 2Fh`, `INT 10h/FEh` и т.п.) — регистры без изменений = «не установлено»;
 порты без устройства — `FFh` и запись в трассу.
 
+## Источники, которые стоит знать
+
+- `github.com/ddanila/vc` — исходники VC 4.05 и 4.99.09, сборка, бинарники
+  в релизах (их качает `tools/fetch-vc.sh`).
+- `github.com/pts/pts-vc405-port` — VC 4.05 на NASM/JWasm с воспроизводимой
+  сборкой и эталонами; база для правок 4.05 (`docs/ASM-GATES.md`).
+- `vc.vvv.kyiv.ua/download/` — сайт автора: бинарники 4.00–4.05 и
+  4.99.00–4.99.08, исходники только 4.05 и 4.99.09 (`src/`).
+- `github.com/microsoft/MS-DOS` (MIT) — исходники MS-DOS 2.0 и 4.0:
+  эталон поведения DOS, когда RBIL неоднозначен.
+
 ## Как расследовать
 
 ```sh
@@ -79,6 +90,8 @@ cd .cache/vc/4.99.09
   -dump-on-exit -dump-dir /tmp ./VC.COM
 /tmp/go2dos -headless -timeout 5s -trace /tmp/w.jsonl -trace-filter port \
   -watch 22CD ./VC.COM            # кто пишет по линейному адресу
+/tmp/go2dos -headless -timeout 5s -trace /tmp/b.jsonl -trace-filter port \
+  -break 0156:0361 ./VC.COM       # регистры в момент исполнения адреса
 ndisasm -b16 -o0xOFF -e$((0xSEG*16+0xOFF)) /tmp/go2dos-dump-*/memory.bin | head
 ```
 
@@ -90,10 +103,9 @@ ndisasm -b16 -o0xOFF -e$((0xSEG*16+0xOFF)) /tmp/go2dos-dump-*/memory.bin | head
 Рабочая очередь с уровнями сложности и стоп-условиями — `docs/TASKS.md`.
 Младшая модель берёт только задачи уровня H. Список ниже — общий порядок.
 
-1. **VC 4.99.09** — открытое расследование, факты в `docs/DOUBTS.md`.
-   Следующий шаг сбора информации: найти адрес переменной `StartMain`
-   (`VC.ASM`, строка 28, `DD 0`, сегмент `VC.COM`) и поставить на неё
-   `-watch`; затем посмотреть адреса исполнения после возврата из `EXEC`.
+1. **VC 4.99.09** — причина установлена (`docs/DOUBTS.md`): после `EXEC`
+   go2dos не восстанавливает регистры родителя, как это делает DOS. Починка —
+   задача T12, только после решения владельца.
 2. LFN (`INT 21h/71xx`) в эмуляторе — сейчас ответ «не поддерживается».
 3. Буфер обмена: WinOldAp (`INT 2Fh/17xx`) в HLE, копирование с экрана и
    вставка нажатиями во фронтенде (DESIGN §9).

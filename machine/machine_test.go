@@ -60,3 +60,49 @@ func TestFiles(t *testing.T) {
 		t.Errorf("screen line 0 = %q", got)
 	}
 }
+
+func runConsole(t *testing.T, name string) (stream string, events []bool, m *Machine) {
+	t.Helper()
+	dir := t.TempDir()
+	src, err := os.ReadFile(filepath.Join("..", "testdata", "progs", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, name), src, 0o644)
+	m, err = New(Config{Drives: map[byte]string{'C': dir}, Codepage: 437, Display: "console",
+		OnStream:  func(b []byte) { stream += string(b) },
+		OnDisplay: func(g bool) { events = append(events, g) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Load(`C:\`+strings.ToUpper(name), ""); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	exitCode(t, m.Run(ctx))
+	return stream, events, m
+}
+
+func TestConsoleStreamOnly(t *testing.T) {
+	stream, events, _ := runConsole(t, "hello.com")
+	if stream != "Hello from go2dos\r\n" {
+		t.Errorf("stream %q", stream)
+	}
+	if len(events) != 0 {
+		t.Errorf("display events %v, want none", events)
+	}
+}
+
+func TestConsoleSwitchesToGridOnDirectWrite(t *testing.T) {
+	stream, events, m := runConsole(t, "direct.com")
+	if stream != "before\r\n" {
+		t.Errorf("stream %q: output after the direct write belongs to the grid", stream)
+	}
+	if len(events) != 2 || !events[0] || events[1] {
+		t.Errorf("display events %v, want [true false]", events)
+	}
+	if got := m.Screen().Line(1); got != "after" {
+		t.Errorf("grid line 1 = %q", got)
+	}
+}

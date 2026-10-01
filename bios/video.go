@@ -43,6 +43,17 @@ type Video struct {
 	crtcIdx byte
 	crtcGen uint32
 	reads   uint32 // input status reads, the clock of the retrace model
+
+	// Stream, if set, receives every character written through the
+	// teletype (the stream channel, as opposed to direct video writes).
+	Stream    func(ch byte)
+	hleWrites uint32 // video page writes made by the teletype itself
+}
+
+// DirectWrites counts writes to video memory not made by the teletype:
+// direct writes by programs and positional BIOS output.
+func (v *Video) DirectWrites() uint32 {
+	return v.e.Mem.RangeWrites(0xB0000, 0xC0000) - v.hleWrites
 }
 
 func (v *Video) b8(a uint32) byte       { return v.e.Mem.R8(a) }
@@ -162,7 +173,17 @@ func (v *Video) scroll(up bool, lines, attr byte, top, left, bottom, right int) 
 }
 
 // Teletype writes one character with BIOS TTY semantics (INT 10h/0Eh).
+// It is the stream channel: the character also goes to Stream.
 func (v *Video) Teletype(ch byte, page byte) {
+	if v.Stream != nil {
+		v.Stream(ch)
+	}
+	before := v.e.Mem.RangeWrites(0xB0000, 0xC0000)
+	v.teletype(ch, page)
+	v.hleWrites += v.e.Mem.RangeWrites(0xB0000, 0xC0000) - before
+}
+
+func (v *Video) teletype(ch byte, page byte) {
 	row, col := v.cursor(page)
 	cols, rows := v.cols(), v.rows()
 	switch ch {
@@ -301,11 +322,11 @@ func (v *Video) writeString(e *hle.Env) {
 		}
 		row, col := v.cursor(page)
 		if ch == 7 || ch == 8 || ch == 10 || ch == 13 {
-			v.Teletype(ch, page)
+			v.teletype(ch, page)
 			continue
 		}
 		e.Mem.W16(v.cellAddr(page, row, col), uint16(attr)<<8|uint16(ch))
-		v.Teletype(0xFF, page) // advance the cursor
+		v.teletype(0xFF, page) // advance the cursor
 		e.Mem.W16(v.cellAddr(page, row, col), uint16(attr)<<8|uint16(ch))
 	}
 	if mode&1 == 0 {

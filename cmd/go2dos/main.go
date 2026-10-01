@@ -65,6 +65,8 @@ func run() int {
 	screenOut := flag.String("screen-out", "", "write the final screen text to `FILE`")
 	record := flag.String("record", "", "write the keys typed in this session as a script to `FILE`")
 	watch := flag.String("watch", "", "log writes to these comma-separated linear hex addresses (with -trace or in dumps)")
+	display := flag.String("display", "console", "terminal display: console (command output in the terminal, full-screen programs on the alternate screen) or grid")
+	brk := flag.String("break", "", "log registers when execution reaches these comma-separated SEG:OFF hex addresses")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage); flag.PrintDefaults() }
 	flag.Parse()
 	if flag.NArg() < 1 {
@@ -108,6 +110,18 @@ func run() int {
 		rend = newRenderer(os.Stdout)
 	}
 	cfg := machine.Config{Drives: drives, Codepage: *cpNum, TraceLog: traceW, TraceFilter: filter}
+	for _, b := range strings.Split(*brk, ",") {
+		if b == "" {
+			continue
+		}
+		seg, off, ok := strings.Cut(b, ":")
+		s, err1 := strconv.ParseUint(seg, 16, 16)
+		o, err2 := strconv.ParseUint(off, 16, 16)
+		if !ok || err1 != nil || err2 != nil {
+			return fail(fmt.Errorf("bad -break address %q (want SEG:OFF)", b))
+		}
+		cfg.Break = append(cfg.Break, uint32(s)<<16|uint32(o))
+	}
 	for _, w := range strings.Split(*watch, ",") {
 		if w == "" {
 			continue
@@ -120,10 +134,15 @@ func run() int {
 	}
 	if rend != nil {
 		cfg.OnScreen = rend.draw
+		cfg.Display = *display
 	}
 	m, err := machine.New(cfg)
 	if err != nil {
 		return fail(err)
+	}
+	if rend != nil && *display == "console" {
+		cfg := m.CP
+		m.SetConsoleOutput(func(b []byte) { rend.stream(b, cfg) }, rend.display)
 	}
 	if m.CodepageInfo.Note != "" {
 		fmt.Fprintln(os.Stderr, "go2dos:", m.CodepageInfo.Note)
@@ -147,7 +166,7 @@ func run() int {
 
 	wantDump := *dumpOnExit
 	if interactive {
-		restore, err := setupTerminal()
+		restore, err := setupTerminal(*display != "console")
 		if err != nil {
 			return fail(err)
 		}
@@ -187,8 +206,10 @@ func run() int {
 	}
 
 	runErr := m.Run(ctx)
-	if interactive {
+	if interactive && *display != "console" {
 		fmt.Print("\x1b[0m\x1b[?25h\x1b[?1049l")
+	} else if interactive && m.GridShown() {
+		rend.display(false)
 	}
 	code := 0
 	reason := ""
@@ -236,16 +257,20 @@ func run() int {
 	return code
 }
 
-func setupTerminal() (func(), error) {
+func setupTerminal(alt bool) (func(), error) {
 	fd := int(os.Stdin.Fd())
 	st, err := term.MakeRaw(fd)
 	if err != nil {
 		return nil, err
 	}
 	undoVT := enableVT()
-	fmt.Print("\x1b[?1049h\x1b[2J")
+	if alt {
+		fmt.Print("\x1b[?1049h\x1b[2J")
+	}
 	return func() {
-		fmt.Print("\x1b[0m\x1b[?25h\x1b[?1049l")
+		if alt {
+			fmt.Print("\x1b[0m\x1b[?25h\x1b[?1049l")
+		}
 		undoVT()
 		term.Restore(fd, st)
 	}, nil

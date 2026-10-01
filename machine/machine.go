@@ -47,6 +47,17 @@ type Config struct {
 	// Watch lists linear addresses whose writes are logged to the trace
 	// together with the writing instruction (diagnostics).
 	Watch []uint32
+	// Display selects how the screen reaches the host: "grid" (the default)
+	// renders video memory through OnScreen; "console" sends teletype output
+	// to OnStream and switches to the grid (OnDisplay(true)) only while a
+	// process writes video memory directly, until that process ends
+	// (OnDisplay(false)). See docs/SCREEN.md.
+	Display   string
+	OnStream  func(b []byte)
+	OnDisplay func(grid bool)
+	// Break lists CS:IP addresses (CS<<16 | IP); reaching one logs the
+	// registers to the trace (diagnostics).
+	Break []uint32
 }
 
 // Machine is an emulated PC running a DOS program.
@@ -76,6 +87,11 @@ type Machine struct {
 	program    string
 	exitCode   int
 	running    atomic.Bool
+	console    bool // console display mode
+	grid       bool // the grid is shown (always true in grid mode)
+	gridOwner  uint16
+	lastDirect uint32
+	streamBuf  []byte
 	unknownIO  map[uint16]bool
 	idleWanted bool
 }
@@ -114,6 +130,15 @@ func New(cfg Config) (*Machine, error) {
 		unknownIO: map[uint16]bool{}, start: time.Now()}
 	m.Mem = mem.New()
 	m.CPU = cpu.New(m.Mem, m)
+	if len(cfg.Break) > 0 {
+		m.CPU.BreakAt = map[uint32]bool{}
+		for _, a := range cfg.Break {
+			m.CPU.BreakAt[a] = true
+		}
+		m.CPU.Break = func(c *cpu.CPU) {
+			m.Env.Trace.Port(fmt.Sprintf("break %04X:%04X %s", c.S[cpu.CS].Sel, c.IP, c.State.String()))
+		}
+	}
 	if len(cfg.Watch) > 0 {
 		m.Mem.Watched = map[uint32]bool{}
 		for _, a := range cfg.Watch {
@@ -140,6 +165,21 @@ func New(cfg Config) (*Machine, error) {
 	}
 	m.pic.imr = 0
 	m.CPU.Intr = m.pic.ack
+	switch cfg.Display {
+	case "", "grid":
+		m.grid = true
+	case "console":
+		m.console = true
+		m.BIOS.Video.Stream = m.onTTY
+		m.DOS.OnExit = func(psp uint16) {
+			if m.grid && psp == m.gridOwner {
+				m.flushStream()
+				m.setGrid(false)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("unknown display mode %q", cfg.Display)
+	}
 	return m, nil
 }
 
@@ -188,6 +228,8 @@ func (m *Machine) Run(ctx context.Context) error {
 	m.running.Store(true)
 	defer m.running.Store(false)
 	m.nextTick = time.Now().Add(TickPeriod)
+	m.lastDirect = m.BIOS.Video.DirectWrites()
+	defer m.flushStream()
 	m.publishScreen(true)
 	const slice = 20000
 	for {
@@ -198,6 +240,10 @@ func (m *Machine) Run(ctx context.Context) error {
 		m.pollHost()
 		m.idleWanted = false
 		reason := m.CPU.Run(slice)
+		if m.console {
+			m.checkDirect()
+			m.flushStream()
+		}
 		if stop := m.Env.Stop; stop != nil {
 			m.Env.Stop = nil
 			m.publishScreen(true)
@@ -292,7 +338,7 @@ func (m *Machine) publishScreen(force bool) {
 	m.lastVer = s.Version
 	m.lastFrame = now
 	m.screen.Store(s)
-	if m.cfg.OnScreen != nil {
+	if m.cfg.OnScreen != nil && m.grid {
 		m.cfg.OnScreen(s)
 	}
 }
@@ -445,3 +491,61 @@ func (p *pit) write(ch int, v byte) {
 
 // CPUHistoryPos returns the index of the next history slot.
 func (m *Machine) CPUHistoryPos() int { return m.CPU.HistoryPos() }
+
+// --- console display mode ------------------------------------------------------
+
+// onTTY receives teletype output in console mode.
+func (m *Machine) onTTY(ch byte) {
+	m.checkDirect()
+	if !m.grid {
+		m.streamBuf = append(m.streamBuf, ch)
+		if len(m.streamBuf) >= 4096 {
+			m.flushStream()
+		}
+	}
+}
+
+// checkDirect switches to the grid on the first direct video write.
+func (m *Machine) checkDirect() {
+	d := m.BIOS.Video.DirectWrites()
+	if d == m.lastDirect {
+		return
+	}
+	m.lastDirect = d
+	if !m.grid {
+		m.flushStream()
+		m.gridOwner = m.DOS.PSP()
+		m.setGrid(true)
+	}
+}
+
+func (m *Machine) setGrid(on bool) {
+	m.grid = on
+	if m.cfg.OnDisplay != nil {
+		m.cfg.OnDisplay(on)
+	}
+	if on {
+		m.lastVer = 0
+		m.publishScreen(true)
+	}
+}
+
+func (m *Machine) flushStream() {
+	if len(m.streamBuf) == 0 {
+		return
+	}
+	if m.cfg.OnStream != nil {
+		m.cfg.OnStream(m.streamBuf)
+	}
+	m.streamBuf = nil
+}
+
+// SetConsoleOutput sets the console-mode callbacks (see Config.Display);
+// call before Run.
+func (m *Machine) SetConsoleOutput(onStream func([]byte), onDisplay func(grid bool)) {
+	m.cfg.OnStream, m.cfg.OnDisplay = onStream, onDisplay
+}
+
+// GridShown reports whether the grid is currently displayed; call after
+// Run returned.
+func (m *Machine) GridShown() bool { return m.grid }

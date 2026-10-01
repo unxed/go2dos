@@ -58,6 +58,9 @@ type DOS struct {
 	frames   []parentFrame // EXEC nesting
 	exitType byte
 
+	// OnExit is called with the PSP of every process that terminates.
+	OnExit func(psp uint16)
+
 	lastErr   uint16
 	breakFlag byte
 	verify    byte
@@ -528,6 +531,9 @@ func (d *DOS) fcbDriveStatus(psp uint16) uint16 {
 // terminate ends the current program: a child returns to its parent, the
 // top-level program stops the machine.
 func (d *DOS) terminate(code byte, keep bool) {
+	if d.OnExit != nil {
+		d.OnExit(d.psp)
+	}
 	d.exit = code
 	d.exitType = 0
 	if keep {
@@ -553,3 +559,6 @@ func (d *DOS) setDTA(seg, off uint16) {
 	d.dtaSeg, d.dtaOff = seg, off
 	d.dta = mem.Lin(seg, off)
 }
+
+// PSP returns the segment of the current process's PSP.
+func (d *DOS) PSP() uint16 { return d.psp }

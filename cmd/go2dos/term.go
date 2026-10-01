@@ -25,6 +25,36 @@ type renderer struct {
 
 func newRenderer(w io.Writer) *renderer { return &renderer{w: bufio.NewWriterSize(w, 64<<10)} }
 
+// display switches between the terminal's normal buffer (console stream)
+// and the alternate screen (grid).
+func (r *renderer) display(grid bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if grid {
+		r.w.WriteString("\x1b[?1049h\x1b[2J")
+		r.prev = nil
+	} else {
+		r.w.WriteString("\x1b[0m\x1b[?25h\x1b[?1049l")
+	}
+	r.w.Flush()
+}
+
+// stream writes teletype output to the normal buffer: CR, LF, BS and BEL
+// stay control characters, every other byte is the glyph the screen shows.
+func (r *renderer) stream(b []byte, page *cp.Codepage) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, c := range b {
+		switch c {
+		case 7, 8, 10, 13:
+			r.w.WriteByte(c)
+		default:
+			r.w.WriteRune(page.ScreenRune(c))
+		}
+	}
+	r.w.Flush()
+}
+
 func (r *renderer) draw(s *bios.Screen) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
