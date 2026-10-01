@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/unxed/go2dos/hle"
 	"github.com/unxed/go2dos/keys"
 	"github.com/unxed/go2dos/machine"
 )
@@ -64,6 +65,7 @@ func run() int {
 	dumpOnExit := flag.Bool("dump-on-exit", false, "write a diagnostic dump even on a normal exit")
 	screenOut := flag.String("screen-out", "", "write the final screen text to `FILE`")
 	record := flag.String("record", "", "write the keys typed in this session as a script to `FILE`")
+	lenient := flag.Bool("lenient", false, "answer unsupported BIOS/DOS calls \"not supported\" instead of stopping; print a summary at the end")
 	watch := flag.String("watch", "", "log writes to these comma-separated linear hex addresses (with -trace or in dumps)")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage); flag.PrintDefaults() }
 	flag.Parse()
@@ -107,7 +109,7 @@ func run() int {
 	if interactive {
 		rend = newRenderer(os.Stdout)
 	}
-	cfg := machine.Config{Drives: drives, Codepage: *cpNum, TraceLog: traceW, TraceFilter: filter}
+	cfg := machine.Config{Drives: drives, Codepage: *cpNum, Lenient: *lenient, TraceLog: traceW, TraceFilter: filter}
 	for _, w := range strings.Split(*watch, ",") {
 		if w == "" {
 			continue
@@ -225,6 +227,10 @@ func run() int {
 		os.WriteFile(*record, []byte(m.RecordedKeys()+"\n"), 0o644)
 	}
 	fmt.Fprintln(os.Stderr, "go2dos:", reason)
+	if *lenient {
+		fmt.Fprint(os.Stderr, "go2dos: unsupported calls answered in lenient mode:\n",
+			hle.FormatUnsupported(m.Unsupported()))
+	}
 	if wantDump {
 		dir, err := m.Dump(*dumpDir, reason)
 		if err != nil {
