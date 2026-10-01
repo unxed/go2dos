@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,7 +15,48 @@ import (
 	"github.com/unxed/go2dos/cp"
 	"github.com/unxed/go2dos/keys"
 	"github.com/unxed/go2dos/machine"
+
+	"golang.org/x/term"
 )
+
+// termHost is the plain ANSI terminal front end (frontend.Host and
+// frontend.Console).
+type termHost struct{ rend *renderer }
+
+func newTermHost(w io.Writer) *termHost { return &termHost{rend: newRenderer(w)} }
+
+func (h *termHost) Draw(s *bios.Screen)                { h.rend.draw(s) }
+func (h *termHost) Stream(b []byte, page *cp.Codepage) { h.rend.stream(b, page) }
+func (h *termHost) Display(grid bool)                  { h.rend.display(grid) }
+
+func (h *termHost) Start(m *machine.Machine, display string, stop func(dump bool)) (func(), error) {
+	restore, err := setupTerminal(display != "console")
+	if err != nil {
+		return nil, err
+	}
+	p := &inputParser{page: m.CP, push: m.PushKey, cmd: func(c termCmd) { stop(c == cmdDump) }}
+	go p.run(os.Stdin)
+	return restore, nil
+}
+
+func setupTerminal(alt bool) (func(), error) {
+	fd := int(os.Stdin.Fd())
+	st, err := term.MakeRaw(fd)
+	if err != nil {
+		return nil, err
+	}
+	undoVT := enableVT()
+	if alt {
+		fmt.Print("\x1b[?1049h\x1b[2J")
+	}
+	return func() {
+		if alt {
+			fmt.Print("\x1b[0m\x1b[?25h\x1b[?1049l")
+		}
+		undoVT()
+		term.Restore(fd, st)
+	}, nil
+}
 
 // renderer draws screen snapshots on an ANSI terminal, sending only the
 // cells that changed since the previous frame.
