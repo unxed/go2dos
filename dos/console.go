@@ -34,6 +34,16 @@ func (d *DOS) stdout(b []byte) {
 	d.conWrite(b)
 }
 
+// echo shows typed characters: on standard output when input comes from the
+// host's standard input (pipe mode), otherwise on the console.
+func (d *DOS) echo(b []byte) {
+	if d.hostStdin() {
+		d.stdout(b)
+		return
+	}
+	d.conWrite(b)
+}
+
 func (d *DOS) cursorCol() (int, int) {
 	p := d.e.Mem.R16(0x450 + uint32(d.b.Video.ActivePage())*2)
 	return int(p >> 8), int(p & 0xFF)
@@ -45,6 +55,9 @@ func (d *DOS) readChar() (byte, bool) {
 	if d.breakChar { // Ctrl-Break: the CON driver returns ^C first
 		d.breakChar = false
 		return 3, true
+	}
+	if d.hostStdin() {
+		return d.hostChar()
 	}
 	d.skipNulls()
 	if d.pendScan != 0 {
@@ -63,6 +76,9 @@ func (d *DOS) readChar() (byte, bool) {
 }
 
 func (d *DOS) charAvailable() bool {
+	if d.hostStdin() {
+		return d.host.available()
+	}
 	d.skipNulls()
 	return d.breakChar || d.pendScan != 0 || d.b.KeyAvailable()
 }
@@ -79,27 +95,36 @@ func (d *DOS) lineInput(max int, ctrlC bool) bool {
 		if !ok {
 			return false
 		}
+		host := d.hostStdin()
+		if host && c == 0x1A && d.host.atEOF() {
+			c = 0x0D // pipe mode: the end of the input ends the line (real DOS would keep waiting)
+		}
+		if host && c == 0x0A {
+			continue // KSTRIN.ASM: a line feed is not stored ("so < works")
+		}
 		switch c {
 		case 0:
-			d.readChar() // drop the scan code of extended keys
+			if !host {
+				d.readChar() // drop the scan code of extended keys
+			}
 		case 0x0D:
-			d.conWrite([]byte{0x0D})
+			d.echo([]byte{0x0D})
 			d.lineDone = true
 			return true
 		case 0x08:
 			if len(d.line) > 0 {
 				d.line = d.line[:len(d.line)-1]
-				d.conWrite([]byte{8, ' ', 8})
+				d.echo([]byte{8, ' ', 8})
 			}
 		case 0x1B:
 			for range d.line {
-				d.conWrite([]byte{8, ' ', 8})
+				d.echo([]byte{8, ' ', 8})
 			}
 			d.line = d.line[:0]
 		default:
 			if len(d.line) < max {
 				d.line = append(d.line, c)
-				d.conWrite([]byte{c})
+				d.echo([]byte{c})
 			}
 		}
 	}
@@ -152,6 +177,15 @@ func (d *DOS) charFunc(e *hle.Env, ah byte) error {
 			c.SetAL(c.DL())
 			return nil
 		}
+		if d.hostStdin() && !d.host.available() {
+			// No byte: ZF=1 (also at the end of the input, as for a file)
+			e.SetZF(true)
+			c.SetAL(0)
+			if d.host.waiting() {
+				e.Idle()
+			}
+			return nil
+		}
 		ch, ok := d.readChar()
 		e.SetZF(!ok)
 		if !ok {
@@ -188,6 +222,10 @@ func (d *DOS) charFunc(e *hle.Env, ah byte) error {
 		d.line = d.line[:0]
 		d.lineDone = false
 	case 0x0B:
+		if d.hostStdin() && d.host.waiting() {
+			e.Idle()
+			return cpu.ErrRetry
+		}
 		if d.charAvailable() {
 			c.SetAL(0xFF)
 		} else {

@@ -17,6 +17,10 @@ const (
 	devNone device = iota
 	devCON
 	devNUL
+	// Pipe mode: handles 0, 1, 2 are the host's standard streams (hostio.go).
+	devHostIn
+	devHostOut
+	devHostErr
 )
 
 type openFile struct {
@@ -217,6 +221,14 @@ func (d *DOS) read(h uint16, buf []byte) (int, uint16) {
 		return 0, 0
 	case devCON:
 		return d.conRead(buf)
+	case devHostIn:
+		n, wait := d.host.read(buf)
+		if wait {
+			return 0, 0xFFFF // marker: retry
+		}
+		return n, 0
+	case devHostOut, devHostErr:
+		return 0, errAccess
 	}
 	n, err := of.f.Read(buf)
 	if err != nil && err != io.EOF {
@@ -236,6 +248,16 @@ func (d *DOS) write(h uint16, buf []byte) (int, uint16) {
 	case devCON:
 		d.conWrite(buf)
 		return len(buf), 0
+	case devHostOut:
+		d.host.writeOut(buf)
+		of.written = true
+		return len(buf), 0
+	case devHostErr:
+		d.host.writeErr(buf)
+		of.written = true
+		return len(buf), 0
+	case devHostIn:
+		return 0, errAccess
 	}
 	if len(buf) == 0 { // DOS: a zero-length write truncates at the current position
 		pos, _ := of.f.Seek(0, io.SeekCurrent)

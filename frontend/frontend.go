@@ -79,6 +79,10 @@ type Options struct {
 	Display     string
 	Size        string
 	HostExec    bool
+	// Pipe is pipe mode (docs/SCREEN.md, S1): the program's standard streams
+	// are those of go2dos (UTF-8 on the host, the OEM code page for DOS), no
+	// screen is drawn and no host front end is needed. Ignored with Headless.
+	Pipe bool
 }
 
 type driveFlags map[byte]string
@@ -105,6 +109,7 @@ func RegisterFlags(fs *flag.FlagSet, terminal bool) *Options {
 	fs.StringVar(&o.Keys, "keys", "", "key script to type (or @FILE)")
 	if terminal {
 		fs.BoolVar(&o.Headless, "headless", false, "run without a terminal; print the final screen")
+		fs.BoolVar(&o.Pipe, "pipe", false, "pipe mode: the program's stdin/stdout/stderr are go2dos's own (UTF-8 <-> OEM code page); on by itself when stdin or stdout is not a terminal")
 		fs.StringVar(&o.Display, "display", "console", "terminal display: console (command output in the terminal, full-screen programs on the alternate screen) or grid")
 	}
 	fs.DurationVar(&o.Timeout, "timeout", 0, "stop after this long (default 60s with -headless)")
@@ -130,7 +135,8 @@ func Fail(err error) int {
 // Run runs args[0] (with the rest as its command tail) and returns the
 // process exit code. host may be nil only with Options.Headless.
 func Run(o *Options, args []string, host Host) int {
-	if host == nil && !o.Headless {
+	pipe := o.Pipe && !o.Headless
+	if host == nil && !o.Headless && !pipe {
 		return Fail(errors.New("no front end; use -headless"))
 	}
 	prog := args[0]
@@ -189,12 +195,15 @@ func Run(o *Options, args []string, host Host) int {
 		return Fail(err)
 	}
 	cfg.Watch = ws
+	if pipe {
+		cfg.Stdin, cfg.Stdout, cfg.Stderr = os.Stdin, os.Stdout, os.Stderr
+	}
 	console, _ := host.(Console)
 	display := o.Display
 	if display == "" || console == nil {
 		display = "grid" // "console" needs a host that can stream
 	}
-	if !o.Headless {
+	if !o.Headless && !pipe {
 		cfg.OnScreen = host.Draw
 		cfg.Display = display
 	}
@@ -202,7 +211,7 @@ func Run(o *Options, args []string, host Host) int {
 	if err != nil {
 		return Fail(err)
 	}
-	if !o.Headless && display == "console" {
+	if !o.Headless && !pipe && display == "console" {
 		page := m.CP
 		m.SetConsoleOutput(func(b []byte) { console.Stream(b, page) }, console.Display)
 	}
@@ -238,7 +247,7 @@ func Run(o *Options, args []string, host Host) int {
 
 	wantDump := o.DumpOnExit
 	restore := func() {}
-	if !o.Headless {
+	if !o.Headless && !pipe {
 		restore, err = host.Start(m, display, func(dump bool) {
 			if dump {
 				wantDump = true
@@ -278,7 +287,7 @@ func Run(o *Options, args []string, host Host) int {
 	}
 
 	runErr := m.Run(ctx)
-	if !o.Headless && display == "console" && m.GridShown() {
+	if !o.Headless && !pipe && display == "console" && m.GridShown() {
 		console.Display(false)
 	}
 	restore()
@@ -316,7 +325,10 @@ func Run(o *Options, args []string, host Host) int {
 	if o.Record != "" {
 		os.WriteFile(o.Record, []byte(m.RecordedKeys()+"\n"), 0o644)
 	}
-	fmt.Fprintln(os.Stderr, "go2dos:", reason)
+	if !pipe || exit == nil {
+		// In pipe mode stderr belongs to the program: only abnormal ends are reported
+		fmt.Fprintln(os.Stderr, "go2dos:", reason)
+	}
 	if o.Lenient {
 		fmt.Fprint(os.Stderr, "go2dos: unsupported calls answered in lenient mode:\n",
 			hle.FormatUnsupported(m.Unsupported()))

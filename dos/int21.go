@@ -577,7 +577,17 @@ func (d *DOS) ioctl(e *hle.Env) error {
 			return nil
 		}
 		c.SetAL(0xFF)
-		if of.dev == devCON && !d.charAvailable() {
+		if of.dev == devHostIn {
+			// Ready when a byte is queued; 00h at the end of the input.
+			// While the host has sent nothing yet, wait for it.
+			if d.host.waiting() {
+				e.Idle()
+				return cpu.ErrRetry
+			}
+			if !d.host.available() {
+				c.SetAL(0)
+			}
+		} else if of.dev == devCON && !d.charAvailable() {
 			c.SetAL(0)
 		} else if of.f != nil {
 			pos, _ := of.f.Seek(0, io.SeekCurrent)

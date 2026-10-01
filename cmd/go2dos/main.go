@@ -2,7 +2,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -15,6 +14,10 @@ import (
 const usage = `go2dos - run a DOS program
 
 usage: go2dos [flags] PROGRAM [ARGS...]
+
+If stdin or stdout is not a terminal (or with -pipe) go2dos runs in pipe
+mode: the program's stdin/stdout/stderr are go2dos's own, with text converted
+between UTF-8 and the OEM code page, and nothing is drawn.
 
 PROGRAM is a host path (its directory becomes C:) or, with -drive, a DOS
 path such as C:\VC.COM.
@@ -41,10 +44,14 @@ func run() int {
 	}
 	var host frontend.Host
 	if !o.Headless {
-		if !term.IsTerminal(int(os.Stdin.Fd())) {
-			return frontend.Fail(errors.New("stdin is not a terminal; use -headless"))
+		// Without a terminal on either side the program works as a filter
+		// (pipe mode): its standard streams are ours.
+		if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+			o.Pipe = true
 		}
-		host = newTermHost(os.Stdout)
+		if !o.Pipe {
+			host = newTermHost(os.Stdout)
+		}
 	}
 	return frontend.Run(o, flag.Args(), host)
 }

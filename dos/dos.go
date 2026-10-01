@@ -5,6 +5,7 @@ package dos
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/unxed/go2dos/bios"
@@ -62,6 +63,13 @@ type Config struct {
 	// the host PATH (hostexec.go). It leaves the sandbox, so it is off by
 	// default.
 	HostExec bool
+	// Stdin, Stdout and Stderr switch on pipe mode (hostio.go): handles 0, 1
+	// and 2 of the first program are the host's streams, converted between
+	// UTF-8 and the OEM code page; the console teletype goes to Stdout. A nil
+	// stream is empty (Stdin) or discarded (Stdout, Stderr). Pipe mode is on
+	// if any of them is set.
+	Stdin          io.Reader
+	Stdout, Stderr io.Writer
 }
 
 // DOS is the kernel state.
@@ -94,6 +102,7 @@ type DOS struct {
 
 	noLFN    bool
 	hostExec bool
+	host     *hostIO // pipe mode, otherwise nil
 
 	faults    [lastDrive]driveFault
 	anyFault  bool
@@ -165,6 +174,16 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 	}
 
 	d.sft = []*openFile{{dev: devCON, refs: 3}, {dev: devNUL, name: "AUX", refs: 1}, {dev: devNUL, name: "PRN", refs: 1}}
+	if cfg.Stdin != nil || cfg.Stdout != nil || cfg.Stderr != nil {
+		d.host = newHostIO(e.CP, cfg.Stdin, cfg.Stdout, cfg.Stderr)
+		// To the program the host streams look like files on C: (IOCTL
+		// 4400h: bit 7 clear), as when DOS output is redirected.
+		d.sft[0].refs = 1
+		d.sft = append(d.sft,
+			&openFile{dev: devHostIn, name: "STDIN", drive: 2, refs: 1},
+			&openFile{dev: devHostOut, name: "STDOUT", drive: 2, refs: 1},
+			&openFile{dev: devHostErr, name: "STDERR", drive: 2, refs: 1})
+	}
 	d.strategy = 0
 
 	e.HookInt(0x20, "int20", d.int20)
@@ -547,6 +566,9 @@ func (d *DOS) buildPSP(psp, top, envSeg, parent uint16, tail string) {
 	}
 	m.W16(a+0x16, parent)
 	jft := []byte{0, 0, 0, 1, 2}
+	if d.host != nil {
+		jft = []byte{3, 4, 5, 1, 2}
+	}
 	for i := 0; i < 20; i++ {
 		v := byte(0xFF)
 		if i < len(jft) {

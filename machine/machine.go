@@ -85,6 +85,13 @@ type Config struct {
 	Display   string
 	OnStream  func(b []byte)
 	OnDisplay func(grid bool)
+	// Stdin, Stdout and Stderr switch on pipe mode (docs/SCREEN.md, S1):
+	// DOS handles 0, 1 and 2 are these host streams (UTF-8 on the host side,
+	// the OEM code page on the DOS side), and the console teletype (INT 29h,
+	// INT 10h/0Eh) goes to Stdout. Pipe mode is on if any is set; it needs no
+	// OnScreen and no Display.
+	Stdin          io.Reader
+	Stdout, Stderr io.Writer
 	// Break lists CS:IP addresses (CS<<16 | IP); reaching one logs the
 	// registers to the trace (diagnostics).
 	Break []uint32
@@ -225,12 +232,16 @@ func New(cfg Config) (*Machine, error) {
 		env = []string{`COMSPEC=C:\COMMAND.COM`, `PATH=C:\`, `PROMPT=$P$G`}
 	}
 	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env, Labels: cfg.Labels, NoLFN: cfg.NoLFN,
-		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect, Clipboard: cfg.Clipboard, HostExec: cfg.HostExec})
+		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect, Clipboard: cfg.Clipboard, HostExec: cfg.HostExec,
+		Stdin: cfg.Stdin, Stdout: cfg.Stdout, Stderr: cfg.Stderr})
 	if err != nil {
 		return nil, err
 	}
 	m.pic.imr = 0
 	m.CPU.Intr = m.pic.ack
+	if m.DOS.PipeMode() {
+		m.BIOS.Video.Stream = m.DOS.HostTTY
+	}
 	switch cfg.Display {
 	case "", "grid":
 		m.grid = true
@@ -296,6 +307,7 @@ func (m *Machine) Run(ctx context.Context) error {
 	m.nextTick = time.Now().Add(TickPeriod)
 	m.lastDirect = m.BIOS.Video.DirectWrites()
 	defer m.flushStream()
+	defer m.DOS.FlushHost()
 	m.publishScreen(true)
 	const slice = 20000
 	for {
@@ -311,6 +323,7 @@ func (m *Machine) Run(ctx context.Context) error {
 		}
 		before := m.CPU.Executed
 		reason := m.CPU.Run(budget)
+		m.DOS.FlushHost()
 		if m.execLeft > 0 && m.CPU.Executed != before {
 			m.logExec()
 		}

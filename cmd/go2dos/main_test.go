@@ -77,3 +77,70 @@ func TestNoLenientFailsFast(t *testing.T) {
 		t.Errorf("unexpected stderr:\n%s", out)
 	}
 }
+
+// Pipe mode (docs/SCREEN.md, S1): with stdin and stdout that are not
+// terminals go2dos is a filter. The child process has pipes for all three
+// streams, so it needs no -pipe flag.
+func runPipeChild(t *testing.T, prog []byte, stdin string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "PIPE.COM")
+	if err := os.WriteFile(path, prog, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], append(args, path)...)
+	cmd.Env = append(os.Environ(), "GO2DOS_TEST_RUN=1")
+	cmd.Stdin = strings.NewReader(stdin)
+	var outb, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &outb, &errb
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		code = ee.ExitCode()
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return code, outb.String(), errb.String()
+}
+
+// hello.com prints a line with INT 21h/09h and exits with code 7.
+func TestPipeModeHello(t *testing.T) {
+	hello, err := os.ReadFile(filepath.Join("..", "..", "testdata", "progs", "hello.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs := runPipeChild(t, hello, "", "-cp", "437")
+	if code != 7 || out != "Hello from go2dos\r\n" {
+		t.Errorf("exit code %d, stdout %q (stderr %q)", code, out, errs)
+	}
+	if strings.Contains(errs, "exit code") {
+		t.Errorf("a normal exit is not reported in pipe mode: stderr %q", errs)
+	}
+}
+
+// A filter: reads standard input with INT 21h/3Fh until the end and writes it
+// to standard output with 40h (the program is hand-assembled, see
+// machine/pipe_test.go). Text is converted UTF-8 <-> the code page both ways.
+var echoProg = []byte{
+	0xB4, 0x3F, 0x31, 0xDB, 0xB9, 0x40, 0x00, 0xBA, 0x00, 0x02, 0xCD, 0x21,
+	0x72, 0x19, 0x09, 0xC0, 0x74, 0x10,
+	0x89, 0xC1, 0xB4, 0x40, 0xBB, 0x01, 0x00, 0xBA, 0x00, 0x02, 0xCD, 0x21,
+	0x72, 0x07, 0xEB, 0xDE,
+	0xB8, 0x00, 0x4C, 0xCD, 0x21,
+	0xB8, 0x01, 0x4C, 0xCD, 0x21,
+}
+
+func TestPipeModeFilter(t *testing.T) {
+	cases := []struct {
+		page, in, out string
+	}{
+		{"437", "café Ж\n", "café ?\r\n"},
+		{"866", "Привет, ä!\nsecond", "Привет, ?!\r\nsecond"},
+	}
+	for _, c := range cases {
+		code, out, errs := runPipeChild(t, echoProg, c.in, "-cp", c.page)
+		if code != 0 || out != c.out {
+			t.Errorf("cp%s %q: exit code %d, stdout %q, want %q (stderr %q)", c.page, c.in, code, out, c.out, errs)
+		}
+	}
+}
