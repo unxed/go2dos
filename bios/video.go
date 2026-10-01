@@ -379,6 +379,13 @@ func (v *Video) int10(e *hle.Env) error {
 		} else {
 			return hle.Unsupported("INT 10h AX=%04Xh", c.R[cpu.AX])
 		}
+	case 0xFF:
+		// TopView/DESQview "update screen from shadow buffer" (RBIL, INT 10h
+		// AH=FFh: CX = changed characters, ES:DI -> first one in the shadow
+		// buffer; returns nothing). AH=FEh above leaves ES:DI unchanged, which
+		// means "no multitasker, write to the real video memory", so the
+		// program has written to it and there is nothing to update.
+		e.Note("TopView update: no shadow buffer, nothing to do")
 	case 0x1B, 0x4F, 0xFE, 0xEF, 0xFA, 0xCC:
 		// Probes for VGA state, VESA, multitasker shadow buffers, Hercules and
 		// TSRs: leaving the registers unchanged is the "not present" answer.
