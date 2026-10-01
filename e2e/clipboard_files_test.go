@@ -11,9 +11,9 @@ func TestMemoryClipboardFiles(t *testing.T) {
 	mc := &frontend.MemoryClipboard{}
 
 	testPaths := []string{
-		"C:\FILE1.TXT",
-		"C:\FILE2.DOC",
-		"D:\SUBDIR\FILE3.XLS",
+		`C:\FILE1.TXT`,
+		`C:\FILE2.DOC`,
+		`D:\SUBDIR\FILE3.XLS`,
 	}
 
 	if err := mc.SetFiles(testPaths); err != nil {
@@ -41,7 +41,7 @@ func TestMemoryClipboardCoexistence(t *testing.T) {
 	mc := &frontend.MemoryClipboard{}
 
 	testText := "Hello, World!"
-	testPaths := []string{"C:\FILE.TXT"}
+	testPaths := []string{`C:\FILE.TXT`}
 
 	if err := mc.SetText(testText); err != nil {
 		t.Fatalf("SetText failed: %v", err)
@@ -78,19 +78,19 @@ func TestCFHDROPEncoding(t *testing.T) {
 	}{
 		{
 			name:  "single file",
-			paths: []string{"C:\FILE.TXT"},
+			paths: []string{`C:\FILE.TXT`},
 		},
 		{
 			name: "multiple files",
 			paths: []string{
-				"C:\FILE1.TXT",
-				"D:\SUBDIR\FILE2.DOC",
-				"E:\FILE3.XLS",
+				`C:\FILE1.TXT`,
+				`D:\SUBDIR\FILE2.DOC`,
+				`E:\FILE3.XLS`,
 			},
 		},
 		{
 			name:  "file with spaces",
-			paths: []string{"C:\My Documents\My File.txt"},
+			paths: []string{`C:\My Documents\My File.txt`},
 		},
 		{
 			name:  "empty list",
@@ -135,22 +135,22 @@ func TestFilePathEncoding(t *testing.T) {
 	}{
 		{
 			name:  "DOS paths",
-			paths: []string{"C:\DIR\FILE.TXT", "D:\DATA\TEST.DAT"},
+			paths: []string{`C:\DIR\FILE.TXT`, `D:\DATA\TEST.DAT`},
 		},
 		{
 			name:  "UNC paths",
-			paths: []string{"\\SERVER\SHARE\FILE.TXT"},
+			paths: []string{`\SERVER\SHARE\FILE.TXT`},
 		},
 		{
 			name:  "long paths",
-			paths: []string{"C:\VERY\LONG\DIRECTORY\PATH\TO\SOME\FILE.TXT"},
+			paths: []string{`C:\VERY\LONG\DIRECTORY\PATH\TO\SOME\FILE.TXT`},
 		},
 		{
 			name: "mixed paths",
 			paths: []string{
-				"C:\SHORT.TXT",
-				"C:\LONGER\PATH\FILE.DOC",
-				"\\NETWORK\SHARE\FILE.XLS",
+				`C:\SHORT.TXT`,
+				`C:\LONGER\PATH\FILE.DOC`,
+				`\NETWORK\SHARE\FILE.XLS`,
 			},
 		},
 	}

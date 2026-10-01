@@ -73,23 +73,26 @@ func DecodeCFHDROP(data []byte) ([]string, error) {
 	}
 
 	var paths []string
-	for {
-		if len(data) < 4 {
+	originalData := data
+
+	pos := 0
+	for pos < len(data) {
+		if pos+4 > len(data) {
 			break
 		}
-		offset := binary.LittleEndian.Uint32(data[0:4])
-		data = data[4:]
+		offset := binary.LittleEndian.Uint32(data[pos : pos+4])
+		pos += 4
 
 		if offset == 0 {
 			break
 		}
 
-		if int(offset) >= len(data) {
+		if int(offset) >= len(originalData) {
 			break
 		}
 
 		var runes []rune
-		fileData := data[int(offset):]
+		fileData := originalData[int(offset):]
 		for i := 0; i < len(fileData)-1; i += 2 {
 			if i+1 < len(fileData) {
 				ch := binary.LittleEndian.Uint16(fileData[i : i+2])
