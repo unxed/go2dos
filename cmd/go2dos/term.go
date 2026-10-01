@@ -13,6 +13,7 @@ import (
 
 	"github.com/unxed/go2dos/bios"
 	"github.com/unxed/go2dos/cp"
+	"github.com/unxed/go2dos/frontend"
 	"github.com/unxed/go2dos/keys"
 	"github.com/unxed/go2dos/machine"
 
