@@ -64,6 +64,7 @@
 - `INT 24h` (критические ошибки), Ctrl-C/Ctrl-Break (`INT 23h`, `INT 1Bh`).
 - `IOCTL 440Dh/0866h`, проверки дисков, метка тома через FindFirst 08h.
 - Диагностика EXEC (`GO2DOS_EXEC_TRACE`), watch в формате `SEG:OFF/N`.
+- Сводная спецификация расширений DOS: `DOS-EXTENSIONS.md` (раздел про WASI — план, кода нет).
 - Исследования: `DN-RESEARCH.md`, `HX-RESEARCH.md`, `WASI-RESEARCH.md`,
   `NC-REQUIREMENTS.md`; сборка VC свободными средствами — `VC-BUILD.md`.
 

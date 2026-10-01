@@ -205,6 +205,7 @@ sh tools/fetch-sst.sh .cache/sst && GO2DOS_SST_DIR=$PWD/.cache/sst go test ./cpu
 - [FRONTEND.md](docs/FRONTEND.md) — фронтенд на vtui: исследование и план
 - [VC-BUILD.md](docs/VC-BUILD.md) — сборка VC свободными средствами
 - [DOUBTS.md](docs/DOUBTS.md) — сомнения и расследования
+- [DOS-EXTENSIONS.md](docs/DOS-EXTENSIONS.md) — сводная спецификация всех наших расширений DOS (буфер обмена, LFN, UTF-8, окно, команды хоста, WASI — план)
 - [UTF8NAMES.md](docs/UTF8NAMES.md) — API UTF-8 имён файлов для DOS (черновик)
 - [NAMES.md](docs/NAMES.md) — имена без потерь для программ, не знающих UTF-8
 - [SCREEN.md](docs/SCREEN.md) — окно любого размера, консоль хоста, длинные строки
