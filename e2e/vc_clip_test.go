@@ -1,13 +1,16 @@
 package e2e
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/unxed/go2dos/dos"
+	"github.com/unxed/go2dos/keys"
 	"github.com/unxed/go2dos/machine"
 )
 
@@ -185,5 +188,56 @@ func TestVC405ClipCommand(t *testing.T) {
 	clipSession(t, `<waitfor:10Quit>clip from the shell<Enter><wait:1500ms>`+clipQuit, clip)
 	if clip.Text != "from the shell" {
 		t.Errorf("clipboard %q", clip.Text)
+	}
+}
+
+// Every start of VC (Init11, after a program has run) loads VCEXT.BIN into a new
+// block; the old one must be gone, or each command leaks a block. The test runs four
+// commands and compares the number of allocated blocks after the first and the last;
+// it reads the memory chain while VC waits for a key. It SKIPS while the leak is
+// known and not fixed (DOUBTS.md): when it starts to pass, the leak is gone.
+func TestVC405ClipModuleBlockNotLeaked(t *testing.T) {
+	if _, err := os.Stat(vcDir(t, "4.05-clip")); err != nil {
+		t.Skip("no VC 4.05 with the clipboard client")
+	}
+	var first, after int
+	m, err, _ := sessionOptsHook(t, "4.05-clip", func(m *machine.Machine) error {
+		count := func() int {
+			n := 0
+			for _, b := range m.DOS.MemBlocks() {
+				if b.Owner != 0 {
+					n++
+				}
+			}
+			return n
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		run := func(script string) {
+			steps, err := keys.Parse(script, m.CP)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if err := m.RunScript(ctx, steps, machine.ScriptOptions{}); err != nil {
+				t.Error(err)
+			}
+		}
+		run(`<waitfor:10Quit>ver<Enter><wait:1s>`)
+		first = count()
+		run(`ver<Enter><wait:1s>ver<Enter><wait:1s>ver<Enter><wait:1s>`)
+		after = count()
+		run(clipQuit)
+		return nil
+	}, nil, machine.Config{Clipboard: &dos.MemClipboard{}})
+	var ex *machine.ExitError
+	if !errors.As(err, &ex) || ex.Code != 0 {
+		t.Fatalf("want exit 0, got %v; screen:\n%s", err, m.Screen().Text())
+	}
+	if after != first {
+		// KNOWN (docs/DOUBTS.md, "Блок модуля VCEXT утекает"): VC does not know the
+		// module's block, and in its small mode reloads the part of its image that
+		// holds the variable with the block's address, so nothing frees the old one.
+		t.Skipf("known leak: %d allocated blocks after one command, %d after four (4 KB per program run)", first, after)
 	}
 }

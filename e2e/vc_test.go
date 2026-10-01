@@ -47,6 +47,21 @@ func sessionDir(t *testing.T, version, script string, extra map[string]string) (
 // sessionOpts is sessionDir with machine settings (drives and code page are set here).
 func sessionOpts(t *testing.T, version, script string, extra map[string]string, cfg machine.Config) (*machine.Machine, error, string) {
 	t.Helper()
+	return sessionOptsHook(t, version, func(m *machine.Machine) error {
+		steps, err := keys.Parse(script, m.CP)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return m.RunScript(ctx, steps, machine.ScriptOptions{})
+	}, extra, cfg)
+}
+
+// sessionOptsHook is sessionOpts with the driver of the keyboard in the test's hands:
+// drive runs in its own goroutine next to the machine.
+func sessionOptsHook(t *testing.T, version string, drive func(*machine.Machine) error, extra map[string]string, cfg machine.Config) (*machine.Machine, error, string) {
+	t.Helper()
 	src := vcDir(t, version)
 	dir := t.TempDir()
 	entries, err := os.ReadDir(src)
@@ -77,14 +92,10 @@ func sessionOpts(t *testing.T, version, script string, extra map[string]string, 
 	if err := m.Load(`C:\VC.COM`, ""); err != nil {
 		t.Fatal(err)
 	}
-	steps, err := keys.Parse(script, m.CP)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	scriptErr := make(chan error, 1)
-	go func() { scriptErr <- m.RunScript(ctx, steps, machine.ScriptOptions{}) }()
+	go func() { scriptErr <- drive(m) }()
 	runErr := m.Run(ctx)
 	if err := <-scriptErr; err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("script: %v\nmachine: %v", err, runErr)

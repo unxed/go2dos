@@ -680,3 +680,18 @@ func (d *DOS) setDTA(seg, off uint16) {
 
 // PSP returns the segment of the current process's PSP.
 func (d *DOS) PSP() uint16 { return d.psp }
+
+// MemBlock is one block of the memory chain (for tests and diagnostics).
+type MemBlock struct {
+	Seg, Owner, Paras uint16 // Owner 0 — free
+}
+
+// MemBlocks lists the memory chain. Call it only while the machine is idle.
+func (d *DOS) MemBlocks() []MemBlock {
+	blocks, _ := d.chain()
+	out := make([]MemBlock, len(blocks))
+	for i, b := range blocks {
+		out[i] = MemBlock{Seg: b.seg, Owner: b.owner, Paras: b.size}
+	}
+	return out
+}
