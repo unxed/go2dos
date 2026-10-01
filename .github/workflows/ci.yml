@@ -36,6 +36,51 @@ jobs:
         env:
           GO2DOS_VC_DIR: ${{ github.workspace }}/.cache/vc  # go test runs in e2e/, so the path must be absolute
 
+  # NC 5.0 и DN 1.51 в репозиторий не входят: tools/fetch-nc.sh, tools/fetch-dn.sh
+  # скачивают их с проверкой SHA-256. Если источник недоступен (код 3), шаги
+  # честно пропускаются: переменные GO2DOS_NC_DIR/GO2DOS_DN_DIR не задаются, тесты
+  # пишут Skip, трассы не снимаются. Несовпадение SHA-256 - красный шаг.
+  e2e-nc-dn:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .cache/nc
+            .cache/dn
+          key: nc-5.00-dn-1.51-v1
+      - name: Скачать NC 5.0
+        id: nc
+        run: |
+          rc=0; sh tools/fetch-nc.sh .cache/nc || rc=$?
+          if [ $rc -eq 0 ]; then echo "GO2DOS_NC_DIR=$GITHUB_WORKSPACE/.cache/nc/5.00" >> "$GITHUB_ENV"
+          elif [ $rc -eq 3 ]; then echo "::warning::NC 5.0 недоступен, тесты NC будут пропущены"
+          else exit $rc; fi
+      - name: Скачать DN 1.51
+        id: dn
+        run: |
+          rc=0; sh tools/fetch-dn.sh .cache/dn || rc=$?
+          if [ $rc -eq 0 ]; then echo "GO2DOS_DN_DIR=$GITHUB_WORKSPACE/.cache/dn/1.51" >> "$GITHUB_ENV"
+          elif [ $rc -eq 3 ]; then echo "::warning::DN 1.51 недоступен, трасса DN не снимается"
+          else exit $rc; fi
+      - run: go build -o dist/go2dos ./cmd/go2dos
+      # Тесты NC: пока что информационные (continue-on-error), результат - в логе.
+      - name: e2e NC
+        continue-on-error: true
+        run: go test -v -run 'NC551' ./e2e/
+      - name: Трассы запуска NC и DN
+        run: sh tools/trace-nc-dn.sh dist/go2dos "${GO2DOS_NC_DIR:-/nonexistent}" "${GO2DOS_DN_DIR:-/nonexistent}" nc-dn-traces
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nc-dn-traces
+          path: nc-dn-traces/
+          if-no-files-found: ignore
+
   cpu-singlestep:
     runs-on: ubuntu-latest
     steps:
