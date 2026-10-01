@@ -68,10 +68,7 @@ jobs:
           elif [ $rc -eq 3 ]; then echo "::warning::DN 1.51 недоступен, трасса DN не снимается"
           else exit $rc; fi
       - run: go build -o dist/go2dos ./cmd/go2dos
-      # Тесты NC: пока что информационные (continue-on-error), результат - в логе.
-      - name: e2e NC
-        continue-on-error: true
-        run: go test -v -run 'NC551' ./e2e/
+      # Здесь же можно запускать e2e NC/DN: GO2DOS_NC_DIR и GO2DOS_DN_DIR уже заданы.
       - name: Трассы запуска NC и DN
         run: sh tools/trace-nc-dn.sh dist/go2dos "${GO2DOS_NC_DIR:-/nonexistent}" "${GO2DOS_DN_DIR:-/nonexistent}" nc-dn-traces
       - uses: actions/upload-artifact@v4
