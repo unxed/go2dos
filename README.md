@@ -28,6 +28,16 @@ go build ./cmd/go2dos
 ./go2dos -headless -keys '<waitfor:10Quit><F10><Enter>' VC.COM
 ```
 
+Нестрогий режим: `-lenient` не останавливает программу на неподдерживаемом
+вызове BIOS/DOS, а отвечает «не поддерживается» (для INT 21h — CF=1, AX=1) и в
+конце печатает в stderr сводку: какие вызовы, сколько раз, откуда. Так можно
+пройти дальше первой ошибки и собрать полный список недостающего (для NC и
+других программ без исходников). Без флага остаётся fail fast с дампом.
+
+```sh
+./go2dos -lenient -headless -timeout 20s -keys '<waitfor:10Quit><F10>' VC.COM
+```
+
 Флаги: `go2dos -h`. Формат скриптов клавиш — в пакете `keys`.
 
 ## Использование как библиотеки
@@ -57,7 +67,8 @@ Norton Commander в тестах не используется; как пров�
 - [DESIGN.md](docs/DESIGN.md) — дизайн и план
 - [TASKS.md](docs/TASKS.md) — очередь задач с уровнями сложности
 - [ASM-GATES.md](docs/ASM-GATES.md) — гейты для правок ассемблерного кода
-- [VTUI-FRONTEND.md](docs/VTUI-FRONTEND.md) — фронтенд на vtui
+- [FRONTEND.md](docs/FRONTEND.md) — фронтенд на vtui: исследование и план
+- [VC-BUILD.md](docs/VC-BUILD.md) — сборка VC свободными средствами
 - [DOUBTS.md](docs/DOUBTS.md) — сомнения и расследования
 - [UTF8NAMES.md](docs/UTF8NAMES.md) — API UTF-8 имён файлов для DOS (черновик)
 - [SCREEN.md](docs/SCREEN.md) — окно любого размера, консоль хоста, длинные строки
@@ -65,3 +76,5 @@ Norton Commander в тестах не используется; как пров�
 - [TRANSLATION.md](docs/TRANSLATION.md) — трансляция x86 → wasm (JIT и AOT)
 - [DN-PLAN.md](docs/DN-PLAN.md) — Dos Navigator: аудит Turbo Vision, переработка, отдельная TV
 - [NC-TESTING.md](docs/NC-TESTING.md) — проверка Norton Commander
+- [NC-REQUIREMENTS.md](docs/NC-REQUIREMENTS.md) — что нужно NC от BIOS/DOS
+- [DN-RESEARCH.md](docs/DN-RESEARCH.md), [HX-RESEARCH.md](docs/HX-RESEARCH.md), [WASI-RESEARCH.md](docs/WASI-RESEARCH.md) — исследования

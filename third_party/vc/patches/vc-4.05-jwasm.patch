@@ -1,0 +1,229 @@
+diff -ruN a/VC.ASM b/VC.ASM
+--- a/VC.ASM	2026-10-01 02:15:47.410537146 +0000
++++ b/VC.ASM	2026-10-01 02:15:47.415537137 +0000
+@@ -4,7 +4,7 @@
+ ;		Version :	16.06.2000
+ ;-------------------------------------------------------
+ 
+-	JUMPS
++	OPTION	OLDSTRUCTS,NOSCOPED
+ 	.MODEL	Tiny
+ 	.CODE
+ Zero:	.STARTUP
+@@ -12,7 +12,7 @@
+ 
+ PrgName	EQU	'Volkov Commander'
+ HelpVer	EQU	'VC 4.05 Help'
+-VcVers	EQU	'4.05'
++VcVers	EQU	<'4.05'>
+ VcSuff	EQU	'freeware'
+ VcApiVr	EQU	42
+ 
+@@ -118,7 +118,7 @@
+   TreHead  DB	   5 DUP(?)		; Tree file header 'PNCI',0
+   TreeLen  DW	   ?			; Number of subdirectories
+   TreSum1  DW	   ?			; Check sum of the header
+-  TreList  LABEL   BYTE			; List of subdirectories
++  TreList  DB	0 DUP(?)			; List of subdirectories
+   TreSum2  DW	   ?			; Check sum of the list
+ DIRTREE	ENDS
+ 
+@@ -142,13 +142,13 @@
+   mRight  DB	0			; Right link
+   mBase	  DW	?			; Menu base
+   mPoint  DW	?
+-  mSelTot LABEL	BYTE
+   mCtrl	  DW	?
+ BOXMN	ENDS
++mSelTot	=	mCtrl + 0
+ 
+ ; The star structure definition.
+ STAR	STRUC
+-  StarClk  LABEL   BYTE			; Time counter
++  StarClk  DB	0 DUP(?)			; Time counter
+   StarMod  DW	   ?			; Low byte - counter, High - explosion
+   StarPos  DW	   ?			; Coordinates of star
+ STAR	ENDS
+@@ -201,7 +201,7 @@
+ SelMas	DB	13 DUP(?)		; Wildcard for selection
+ HstBuf	DB	LenHist DUP(?)		; History buffer
+ ExtMain	DB	LenExt DUP(?)		; Buffer for the main extension file
+-EPB	EPBs	?			; Execute program block
++EPB	EPBs	<>			; Execute program block
+ MouseX	DW	?			; Mouse cursor X
+ MouseY	DW	?			; Mouse cursor Y
+ BatAdr	DW	?			; Pointer to command in buffer
+@@ -274,12 +274,12 @@
+ DosPth	DB	LenPath DUP(?)		; The current path
+ NcPath	DB	LenPath DUP(?)		; The path from VC= variable
+ TempDir	DB	LenPath DUP(?)		; The path from TEMP= variable
+-Country	CNTRY	?			; Country information
+-DTA	DTAs	?			; Data tramsnir area
++Country	CNTRY	<>			; Country information
++DTA	DTAs	<>			; Data tramsnir area
+ LowTab	DB	128 DUP(?)		; Lower case table
+ TmpBuf	DB	256 DUP(?)
+ TmpErr	DB	256 DUP(?)
+-Stars	STAR	NmbStrs DUP(?)
++Stars	STAR	NmbStrs DUP(<>)
+ MenuBuf	DB	LenMenu DUP(?)
+ InfBuf	DB	(MaxLins-13)* 38 DUP(?)
+ 	EVEN
+@@ -721,7 +721,7 @@
+ 
+ ;------------- Save vectors & program name -------------
+ ;			DS:DX - file name
+-ExeProg	PROC	C NEAR
++ExeProg	PROC	NEAR C
+ 	PUSH	ES
+ 	PUSH	SI
+ 	PUSH	DI
+diff -ruN a/VCEDIT.INC b/VCEDIT.INC
+--- a/VCEDIT.INC	2026-10-01 02:15:47.410537146 +0000
++++ b/VCEDIT.INC	2026-10-01 02:15:47.415537137 +0000
+@@ -9,7 +9,7 @@
+ 
+ EdData	STRUC
+ 	DB	TmpBuf+100 DUP(?)
+-EdHelp	LABEL	BYTE			; Mini help
++EdHelp	DB	0 DUP(?)			; Mini help
+ EdOffst	DD	?			; Offset of begin of the current line
+ EdEndBf	DD	?			; Offset of end of part of current line
+ EdSizLn	DW	?			; Length of part of line in buffer
+diff -ruN a/VCHELP.INC b/VCHELP.INC
+--- a/VCHELP.INC	2026-10-01 02:15:47.411537144 +0000
++++ b/VCHELP.INC	2026-10-01 02:15:47.416537135 +0000
+@@ -5,7 +5,7 @@
+ HlpData	STRUC
+ 	DB	HelpBuf DUP(?)
+ HlpHndl	DW	?
+-HlpPrms	LABEL	BYTE
++HlpPrms	DB	0 DUP(?)
+ HlpMode	DW	?
+ HlpSize	DW	?
+ HlpLins	DW	?
+@@ -16,7 +16,7 @@
+ HlpCur	DW	?
+ 	DB	10 DUP(?)
+ HlpBkFr	DW	?
+-HlpInfo	LABEL	BYTE
++HlpInfo	DB	0 DUP(?)
+ HlpData	ENDS
+ 
+ 	.CONST
+diff -ruN a/VCMENU.INC b/VCMENU.INC
+--- a/VCMENU.INC	2026-10-01 02:15:47.411537144 +0000
++++ b/VCMENU.INC	2026-10-01 02:15:47.416537135 +0000
+@@ -539,7 +539,10 @@
+ 	POP	CX
+ 	POP	DI
+ 	ADD	DI,2*80
+-	LOOP	F39_52
++	LOOP	F39_52a
++	JMP	SHORT F39_52b
++F39_52a:	JMP	F39_52
++F39_52b:
+ 	PUSH	DI
+ 	MOV	AL,'À'
+ 	STOSW
+@@ -748,7 +751,7 @@
+ 	MOV	BL,AH
+ 	DEC	BX
+ 	ADD	BL,BL
+-	JMP	CS:[BX+SI]
++	JMP	WORD PTR CS:[BX+SI]
+ F39_91:	JMP	Func04
+ 
+ F40_10	PROC	NEAR
+diff -ruN a/VCSETUP.ASM b/VCSETUP.ASM
+--- a/VCSETUP.ASM	2026-10-01 02:15:47.411537144 +0000
++++ b/VCSETUP.ASM	2026-10-01 02:15:47.416537135 +0000
+@@ -3,9 +3,10 @@
+ ;-------------------------------------------------------
+ 
+ 	.MODEL	Tiny
++	OPTION	OLDSTRUCTS,NOSCOPED
+ 
+ PrgName	EQU	'Volkov Commander'
+-VcVers	EQU	'4.05 freeware'
++VcVers	EQU	<'4.05 freeware'>
+ HelpVer	EQU	'VC 4.05 Help'
+ VcApiVr	EQU	42
+ 
+@@ -72,13 +73,13 @@
+   mRight  DB	0			; Right link
+   mBase	  DW	?			; Menu base
+   mPoint  DW	?
+-  mSelTot LABEL	BYTE
+   mCtrl	  DW	?
+ BOXMN	ENDS
++mSelTot	=	mCtrl + 0
+ 
+ ; The star structure definition.
+ STAR	STRUC
+-  StarClk  LABEL   BYTE			; Time counter
++  StarClk  DB	0 DUP(?)			; Time counter
+   StarMod  DW	   ?			; Low byte - counter, High - explosion
+   StarPos  DW	   ?			; Coordinates of star
+ STAR	ENDS
+@@ -178,7 +179,7 @@
+ Screen	DD	?			; Address of screen
+ BrkVct	DD	?			; Original vector 1Bh
+ NcPath	DB	LenPath+13 DUP(?)	; The path from VC= variable
+-Country	CNTRY	?			; Country information
++Country	CNTRY	<>			; Country information
+ LowTab	DB	128 DUP(?)		; Lower case table
+ TmpBuf	DB	256 DUP(?)
+ TmpErr	DB	256 DUP(?)
+diff -ruN a/VCSTHLP.INC b/VCSTHLP.INC
+--- a/VCSTHLP.INC	2026-10-01 02:15:47.411537144 +0000
++++ b/VCSTHLP.INC	2026-10-01 02:15:47.416537135 +0000
+@@ -15,7 +15,7 @@
+ HlpFrst	DW	?
+ HlpCur	DW	?
+ 	DB	8 DUP(?)
+-HlpInfo	LABEL	BYTE
++HlpInfo	DB	0 DUP(?)
+ HlpData	ENDS
+ 
+ 	.CONST
+diff -ruN a/VCSTSUB.INC b/VCSTSUB.INC
+--- a/VCSTSUB.INC	2026-10-01 02:15:47.411537144 +0000
++++ b/VCSTSUB.INC	2026-10-01 02:15:47.416537135 +0000
+@@ -2237,14 +2237,13 @@
+ 	RET
+ Input	ENDP
+ 
+-Input0	PROC	C NEAR
+-	USES	DS,SI,DI,DX,CX,BX
++Input0	PROC	NEAR C USES DS SI DI DX CX BX
+ 	LOCAL	IKeyBar	:BYTE	,\
+ 		BlMouse	:BYTE	,\
+ 		KbdFlgs	:BYTE	,\
+ 		AltLock	:BYTE	,\
+ 		ClkFlag	:BYTE	,\
+-		ClkBuf	:WORD:6	,\
++		ClkBuf[6]	:WORD	,\
+ 		BlTime	:DWORD	,\
+ 		AltTime	:DWORD
+ 	PUSH	ES
+diff -ruN a/VCSUB2.INC b/VCSUB2.INC
+--- a/VCSUB2.INC	2026-10-01 02:15:47.412537142 +0000
++++ b/VCSUB2.INC	2026-10-01 02:15:47.417537134 +0000
+@@ -1677,14 +1677,13 @@
+ 	RET
+ Input	ENDP
+ 
+-Input0	PROC	C NEAR
+-	USES	DS,SI,DI,DX,CX,BX
++Input0	PROC	NEAR C USES DS SI DI DX CX BX
+ 	LOCAL	IKeyBar	:BYTE	,\
+ 		BlMouse	:BYTE	,\
+ 		KbdFlgs	:BYTE	,\
+ 		AltLock	:BYTE	,\
+ 		ClkFlag	:BYTE	,\
+-		ClkBuf	:WORD:6	,\
++		ClkBuf[6]	:WORD	,\
+ 		BlTime	:DWORD	,\
+ 		AltTime	:DWORD
+ 	PUSH	ES

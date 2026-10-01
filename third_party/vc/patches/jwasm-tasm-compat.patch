@@ -1,0 +1,41 @@
+diff --git a/src/H/instruct.h b/src/H/instruct.h
+index ce63f41..8ad7209 100644
+--- a/src/H/instruct.h
++++ b/src/H/instruct.h
+@@ -113,9 +113,9 @@ insx(LOOPNZW,loopnzw,           OpCls( I8,   NONE,  NONE  ), F_16A,  0,  no_RM,
+  */
+ 
+ #define ari( name, namelc, code, lock )      \
+-ins (name, namelc,              OpCls( RGT8, I8,    NONE  ), 0,      0,  no_WDS, 0x83,     code,       P_86,        0) \
++ins (name, namelc,              OpCls( A,    I,     NONE  ), 0,      0,  no_RM,  code+4,   0x00,       P_86,        0) \
++insn(name, 9,                   OpCls( RGT8, I8,    NONE  ), 0,      0,  no_WDS, 0x83,     code,       P_86,        0) \
+ insn(name, 1,                   OpCls( R,    R_MS,  NONE  ), 0,      1,  0,      code+2,   0x00,       P_86,        0) \
+-insn(name, 3,                   OpCls( A,    I,     NONE  ), 0,      0,  no_RM,  code+4,   0x00,       P_86,        0) \
+ insn(name, 4,                   OpCls( R,    I,     NONE  ), 0,      0,  0,      0x80,     code,       P_86,        0) \
+ insn(name, 6,                   OpCls( MGT8, I8,    NONE  ), 0,      0,  no_WDS, 0x83,     code,       P_86,        lock) \
+ insn(name, 7,                   OpCls( MS,   R,     NONE  ), 0,      0,  0,      code,     0x00,       P_86,        lock) \
+@@ -124,6 +124,8 @@ insn(name, 8,                   OpCls( MS,   I,     NONE  ), 0,      0,  0,
+ /* v2.02: entries 5+6 replaced by 6 */
+ /* v2.06: entries 1+2 replaced by 1 */
+ /* v2.11: added AP_LOCK argument, because CMP isn't supposed to accept this prefix */
++/* go2dos: the accumulator form (A,I) is tried first, as TASM does: ADD AX,3 is
++ * 05 03 00, not 83 C0 03 (same length; keeps VC byte-identical to TASM output) */
+ 
+ ari( ADD, add, 0x00, AP_LOCK )
+ ari(  OR,  or, 0x08, AP_LOCK )
+diff --git a/src/simsegm.c b/src/simsegm.c
+index a9f4570..2cb0a5d 100644
+--- a/src/simsegm.c
++++ b/src/simsegm.c
+@@ -303,6 +303,11 @@ ret_code SimplifiedSegDir( int i, struct asm_tok tokenarray[] )
+     case SIM_DATA_UN: /* .data? */
+     case SIM_CONST:   /* .const */
+         SetSimSeg( type, name );
++        /* TASM-compatible: in the tiny model code and data share DGROUP,
++         * so code (labels, jumps) may live in .DATA/.CONST (VC 4.05 does) */
++        if ( ModuleInfo.model == MODEL_TINY )
++            AddLineQueueX( "%r %r:%s", T_ASSUME, T_CS, GetCodeGroupName( NULL ) );
++        else
+         AddLineQueueX( "%r %r:ERROR", T_ASSUME, T_CS );
+         if ( name || (!init) )
+             AddToDgroup( type, name );

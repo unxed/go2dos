@@ -23,6 +23,7 @@ const (
 	errBadHandle    = 0x06
 	errBadMCB       = 0x09
 	errNoMem        = 0x08
+	errInvalidData  = 0x0D
 	errBadDrive     = 0x0F
 	errCurDir       = 0x10
 	errNotSame      = 0x11
@@ -65,11 +66,14 @@ type dirEntry struct {
 type dirIndex struct {
 	entries []dirEntry
 	byDOS   map[string]int
+	byHost  map[string]int // exact host name
+	byFold  map[string]int // lower-cased host name, first entry wins
 }
 
 type fsys struct {
 	e      *hle.Env
 	drives [26]string // host roots; "" if not mapped
+	labels [26]string // volume labels in the code page, without padding
 	cur    int        // current drive (0 = A)
 	cwd    [26]string // per drive: "\" or "\DIR\SUB"
 	cache  map[string]*dirIndex
@@ -97,6 +101,7 @@ func newFS(e *hle.Env, cfg Config) (*fsys, error) {
 		}
 		f.drives[l-'A'] = abs
 	}
+	f.initLabels(cfg.Labels)
 	for i := range f.cwd {
 		f.cwd[i] = `\`
 	}
@@ -167,7 +172,7 @@ func (f *fsys) index(hostDir string) (*dirIndex, uint16) {
 		return nil, errAccess
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name() < list[j].Name() })
-	ix := &dirIndex{byDOS: map[string]int{}}
+	ix := &dirIndex{byDOS: map[string]int{}, byHost: map[string]int{}, byFold: map[string]int{}}
 	type pending struct {
 		host string
 		up   []byte
@@ -224,8 +229,14 @@ func (f *fsys) index(hostDir string) (*dirIndex, uint16) {
 
 func (ix *dirIndex) add(e dirEntry) {
 	ix.byDOS[e.dos] = len(ix.entries)
+	ix.byHost[e.host] = len(ix.entries)
+	if f := strings.ToLower(e.host); !ix.hasFold(f) {
+		ix.byFold[f] = len(ix.entries)
+	}
 	ix.entries = append(ix.entries, e)
 }
+
+func (ix *dirIndex) hasFold(fold string) bool { _, ok := ix.byFold[fold]; return ok }
 
 func attrOf(e dirEntry) byte {
 	var a byte
@@ -291,22 +302,29 @@ func (f *fsys) canon(p []byte, wild bool) (int, string, uint16) {
 			return 0, "", errPathNotFound
 		}
 		// DOS silently truncates to 8.3.
-		base, ext := name, ""
-		if k := strings.LastIndexByte(name, '.'); k > 0 {
-			base, ext = name[:k], name[k+1:]
-		}
-		if len(base) > 8 {
-			base = base[:8]
-		}
-		if len(ext) > 3 {
-			ext = ext[:3]
-		}
-		if ext != "" {
-			base += "." + ext
-		}
+		base := trunc83(name)
 		out = append(out, base)
 	}
 	return drive, `\` + strings.Join(out, `\`), 0
+}
+
+// trunc83 cuts an upper-case name down to 8.3 the way DOS does for a name
+// it is given in a classic call.
+func trunc83(name string) string {
+	base, ext := name, ""
+	if k := strings.LastIndexByte(name, '.'); k > 0 {
+		base, ext = name[:k], name[k+1:]
+	}
+	if len(base) > 8 {
+		base = base[:8]
+	}
+	if len(ext) > 3 {
+		ext = ext[:3]
+	}
+	if ext != "" {
+		base += "." + ext
+	}
+	return base
 }
 
 // lookup finds a DOS name in a host directory.

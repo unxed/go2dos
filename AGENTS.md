@@ -2,7 +2,7 @@
 
 Прочитай этот файл целиком, потом — `README.md`, `docs/DESIGN.md` (статус в
 §13), `docs/DOUBTS.md` (открытые расследования), `docs/UTF8NAMES.md`,
-`docs/TASKS.md`, `docs/ASM-GATES.md`, `docs/VTUI-FRONTEND.md`, `docs/SCREEN.md`, `docs/WASI-BRIDGE.md`, `docs/TRANSLATION.md`, `docs/DN-PLAN.md`,
+`docs/TASKS.md`, `docs/ASM-GATES.md`, `docs/FRONTEND.md`, `docs/VC-BUILD.md`, `docs/SCREEN.md`, `docs/WASI-BRIDGE.md`, `docs/TRANSLATION.md`, `docs/DN-PLAN.md`,
 `docs/NC-TESTING.md`.
 
 ## Правила работы с владельцем

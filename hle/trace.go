@@ -120,6 +120,19 @@ func (t *Tracer) Last() []Record {
 	return append(out, t.ring[:t.pos]...)
 }
 
+// Stream writes a diagnostic line (name, msg) to the JSON log only, without
+// putting it into the ring of recent calls shown in dumps. It is meant for
+// high-volume instrumentation such as the post-event execution log.
+func (t *Tracer) Stream(name, msg string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.enc == nil || !t.match(name) {
+		return
+	}
+	t.seq++
+	_ = t.enc.Encode(&Record{Seq: t.seq, Name: name, Note: msg})
+}
+
 // Port records an I/O port event (first access to a port without a device).
 func (t *Tracer) Port(msg string) {
 	t.mu.Lock()

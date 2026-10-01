@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/unxed/go2dos/hle"
 	"github.com/unxed/go2dos/keys"
 	"github.com/unxed/go2dos/machine"
 )
@@ -64,7 +65,8 @@ func run() int {
 	dumpOnExit := flag.Bool("dump-on-exit", false, "write a diagnostic dump even on a normal exit")
 	screenOut := flag.String("screen-out", "", "write the final screen text to `FILE`")
 	record := flag.String("record", "", "write the keys typed in this session as a script to `FILE`")
-	watch := flag.String("watch", "", "log writes to these comma-separated linear hex addresses (with -trace or in dumps)")
+	lenient := flag.Bool("lenient", false, "answer unsupported BIOS/DOS calls \"not supported\" instead of stopping; print a summary at the end")
+	watch := flag.String("watch", "", "log writes to these comma-separated addresses: linear hex or SEG:OFF, optionally /N bytes (with -trace or in dumps)")
 	display := flag.String("display", "console", "terminal display: console (command output in the terminal, full-screen programs on the alternate screen) or grid")
 	brk := flag.String("break", "", "log registers when execution reaches these comma-separated SEG:OFF hex addresses")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage); flag.PrintDefaults() }
@@ -109,7 +111,7 @@ func run() int {
 	if interactive {
 		rend = newRenderer(os.Stdout)
 	}
-	cfg := machine.Config{Drives: drives, Codepage: *cpNum, TraceLog: traceW, TraceFilter: filter}
+	cfg := machine.Config{Drives: drives, Codepage: *cpNum, Lenient: *lenient, TraceLog: traceW, TraceFilter: filter}
 	for _, b := range strings.Split(*brk, ",") {
 		if b == "" {
 			continue
@@ -122,16 +124,11 @@ func run() int {
 		}
 		cfg.Break = append(cfg.Break, uint32(s)<<16|uint32(o))
 	}
-	for _, w := range strings.Split(*watch, ",") {
-		if w == "" {
-			continue
-		}
-		a, err := strconv.ParseUint(strings.TrimPrefix(strings.ToLower(w), "0x"), 16, 32)
-		if err != nil {
-			return fail(fmt.Errorf("bad -watch address %q", w))
-		}
-		cfg.Watch = append(cfg.Watch, uint32(a))
+	ws, err := machine.ParseWatch(*watch)
+	if err != nil {
+		return fail(err)
 	}
+	cfg.Watch = ws
 	if rend != nil {
 		cfg.OnScreen = rend.draw
 		cfg.Display = *display
@@ -246,6 +243,10 @@ func run() int {
 		os.WriteFile(*record, []byte(m.RecordedKeys()+"\n"), 0o644)
 	}
 	fmt.Fprintln(os.Stderr, "go2dos:", reason)
+	if *lenient {
+		fmt.Fprint(os.Stderr, "go2dos: unsupported calls answered in lenient mode:\n",
+			hle.FormatUnsupported(m.Unsupported()))
+	}
 	if wantDump {
 		dir, err := m.Dump(*dumpDir, reason)
 		if err != nil {

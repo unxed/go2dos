@@ -2,6 +2,7 @@ package dos
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	"github.com/unxed/go2dos/cpu"
 	"github.com/unxed/go2dos/hle"
@@ -13,8 +14,12 @@ type parentFrame struct {
 	psp            uint16
 	ss, sp         uint16 // stack with the parent's INT 21h frame on top
 	dtaSeg, dtaOff uint16
-	regs           [8]uint16 // parent's general registers at the EXEC call
-	ds, es         uint16
+	// Registers at the parent's INT 21h/4B00h; DOS gives them back when
+	// the child ends (MS-DOS 4.0 DISP.ASM restore_world, called from
+	// CTRLC.ASM reset_return), so a parent may keep DS, ES, BP... across EXEC.
+	r  [8]uint16
+	ds uint16
+	es uint16
 }
 
 // image is a program file ready to be placed in memory.
@@ -150,8 +155,8 @@ func (d *DOS) exec(e *hle.Env) error {
 
 	// Parent state, resumed on termination.
 	parent := d.psp
-	d.frames = append(d.frames, parentFrame{psp: parent, ss: e.Seg(cpu.SS), sp: c.R[cpu.SP],
-		dtaSeg: d.dtaSeg, dtaOff: d.dtaOff, regs: c.R, ds: e.Seg(cpu.DS), es: e.Seg(cpu.ES)})
+	d.frames = append(d.frames, parentFrame{psp: parent, ss: e.Seg(cpu.SS), sp: c.R[cpu.SP], dtaSeg: d.dtaSeg, dtaOff: d.dtaOff,
+		r: c.R, ds: e.Seg(cpu.DS), es: e.Seg(cpu.ES)})
 	m.W16(mem.Lin(parent, 0x2E), c.R[cpu.SP])
 	m.W16(mem.Lin(parent, 0x30), e.Seg(cpu.SS))
 
@@ -190,7 +195,7 @@ func (d *DOS) exec(e *hle.Env) error {
 	if im.isEXE {
 		start := psp + 0x10
 		if errc := d.place(im, start, start); errc != 0 {
-			return hle.Unsupported("EXEC: bad EXE relocation table in %s", im.path)
+			return fmt.Errorf("EXEC: bad EXE relocation table in %s", im.path) // a broken file, not an unsupported call
 		}
 		c.SetSeg(cpu.CS, start+im.hdr.CS)
 		c.IP = im.hdr.IP
@@ -216,6 +221,14 @@ func (d *DOS) exec(e *hle.Env) error {
 	c.SetSeg(cpu.ES, psp)
 	c.R[cpu.AX] = d.fcbDriveStatus(psp)
 	c.SetFlags(c.Flags | cpu.FlagIF)
+	// Diagnostics: everything the child is given, and where it starts.
+	e.Note("%s env=%04X tail=%04X:%04X [% X] fcb1=%04X:%04X fcb2=%04X:%04X psp=%04X size=%04X parent=%04X ret=%04X:%04X start=%04X:%04X ss:sp=%04X:%04X",
+		im.path, envSeg, tailPtr>>16, tailPtr&0xFFFF, m.Bytes(tail, int(n)+2),
+		fcb1>>16, fcb1&0xFFFF, fcb2>>16, fcb2&0xFFFF, psp, size, parent, retCS, retIP,
+		c.S[cpu.CS].Sel, c.IP, c.S[cpu.SS].Sel, c.R[cpu.SP])
+	if e.Event != nil {
+		e.Event("exec-start")
+	}
 	return nil
 }
 
@@ -266,15 +279,19 @@ func (d *DOS) endChild(code byte, keep bool) bool {
 	// the EXEC call, its INT 21h frame dropped, IRET to the terminate
 	// address with FLAGS = F202h. Programs rely on this (VC 4.99.09 keeps
 	// DS across EXEC).
-	sp := f.regs[cpu.SP]
-	c.R = f.regs
-	c.R[cpu.SP] = sp + 6
+	c.R = f.r
+	c.R[cpu.SP] = f.sp + 6
 	c.SetSeg(cpu.SS, f.ss)
 	c.SetSeg(cpu.DS, f.ds)
 	c.SetSeg(cpu.ES, f.es)
 	c.SetSeg(cpu.CS, retCS)
 	c.IP = retIP
 	c.SetFlags(0xF202)
+	d.e.Trace.Stream("exec", fmt.Sprintf("return: child psp=%04X ended (keep=%v), parent psp=%04X resumes at %04X:%04X ss:sp=%04X:%04X",
+		child, keep, f.psp, retCS, retIP, f.ss, c.R[cpu.SP]))
+	if d.e.Event != nil {
+		d.e.Event("exec-return")
+	}
 	return true
 }
 

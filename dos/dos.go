@@ -40,6 +40,20 @@ type Config struct {
 	Drives  map[byte]string // drive letter (A-Z) -> host directory
 	Current byte            // current drive letter
 	Env     []string        // environment variables (NAME=VALUE)
+	// Labels maps drive letters to volume labels (up to 11 characters).
+	// A host directory has no label, so without an entry the drive reports
+	// "NO NAME" and FindFirst with attribute 08h finds nothing.
+	Labels map[byte]string
+	// NoLFN turns the long-name API off: every INT 21h AH=71h call answers
+	// AX=7100h, CF=1, as a DOS without LFN does (for programs that must be
+	// checked without long names, such as Norton Commander).
+	NoLFN bool
+	// NotReady and WriteProtect list drives that fail like a floppy drive
+	// with no disk ("drive not ready", INT 24h error 02h) or with a
+	// write-protected disk (error 00h on writes). DOS then calls INT 24h
+	// (crit.go). Without such drives no critical error ever occurs.
+	NotReady     map[byte]bool
+	WriteProtect map[byte]bool
 }
 
 // DOS is the kernel state.
@@ -69,16 +83,40 @@ type DOS struct {
 	line      []byte
 	lineDone  bool
 	conIn     []byte // cooked CON input not yet consumed by read
+
+	noLFN bool
+
+	faults    [lastDrive]driveFault
+	anyFault  bool
+	errorMode bool // INT 24h is running
+	crit      critState
+	int21Off  uint16 // stub of INT 21h itself
+	critStub  uint16 // ROM stub that continues a call after INT 24h
+	cc        []ccState
+	ccStub    uint16              // ROM stub that continues a call after INT 23h
+	breakChar bool                // Ctrl-Break seen by INT 1Bh: ^C is waiting for DOS
+	finds     map[uint16]*lfnFind // open long-name searches (71xx filefind handles)
+	nextFind  uint16
 }
 
 // New installs the kernel.
 func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
-	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0}
+	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN}
 	fs, err := newFS(e, cfg)
 	if err != nil {
 		return nil, err
 	}
 	d.fs = fs
+	for l := range cfg.NotReady {
+		if l >= 'A' && l <= 'Z' && cfg.NotReady[l] {
+			d.faults[l-'A'].notReady, d.anyFault = true, true
+		}
+	}
+	for l := range cfg.WriteProtect {
+		if l >= 'A' && l <= 'Z' && cfg.WriteProtect[l] {
+			d.faults[l-'A'].writeProtect, d.anyFault = true, true
+		}
+	}
 	m := e.Mem
 
 	// MCB chain: one free block covering the rest of conventional memory.
@@ -115,15 +153,19 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 
 	e.HookInt(0x20, "int20", d.int20)
 	e.HookInt(0x21, "int21", d.int21)
+	_, d.int21Off = e.Vector(0x21)
 	e.HookInt(0x22, "int22", func(e *hle.Env) error { return hle.Unsupported("INT 22h called directly") })
-	e.HookInt(0x23, "int23", d.int23)
+	// INT 24h by default: the kernel handler always answers Fail (RBIL Int 24).
 	e.HookInt(0x24, "int24", func(e *hle.Env) error { e.CPU.SetAL(3); return nil })
+	d.installCrit(e)
 	e.HookInt(0x25, "int25", func(e *hle.Env) error { return hle.Unsupported("INT 25h absolute disk read") })
 	e.HookInt(0x26, "int26", func(e *hle.Env) error { return hle.Unsupported("INT 26h absolute disk write") })
 	e.HookInt(0x27, "int27", d.int27)
 	e.HookInt(0x28, "int28", func(e *hle.Env) error { e.Idle(); return nil })
 	e.HookInt(0x29, "int29", func(e *hle.Env) error { d.conWrite([]byte{e.CPU.AL()}); return nil })
 	e.HookInt(0x2F, "int2F", d.int2F)
+	// Lenient mode: an unsupported INT 21h call fails with "invalid function".
+	e.Fallback("int21", func(e *hle.Env) error { d.fail(e, errInvalidFunc); return nil })
 	iret := e.Emit([]byte{0xCF})
 	e.SetVector(0x2A, hle.ROMSeg, iret)
 	return d, nil
@@ -531,14 +573,24 @@ func (d *DOS) fcbDriveStatus(psp uint16) uint16 {
 // terminate ends the current program: a child returns to its parent, the
 // top-level program stops the machine.
 func (d *DOS) terminate(code byte, keep bool) {
+	typ := byte(0)
+	if keep {
+		typ = 3
+	}
+	d.terminateAs(code, typ)
+}
+
+// terminateAs ends the program with an exit type (INT 21h/4Dh, AH): 0 normal,
+// 1 Ctrl-C, 2 critical error, 3 keep resident.
+func (d *DOS) terminateAs(code, typ byte) {
 	if d.OnExit != nil {
 		d.OnExit(d.psp)
 	}
+	keep := typ == 3
+	d.errorMode = false
+	d.cc = nil
 	d.exit = code
-	d.exitType = 0
-	if keep {
-		d.exitType = 3
-	}
+	d.exitType = typ
 	if d.endChild(code, keep) {
 		return
 	}
@@ -550,8 +602,6 @@ func (d *DOS) terminate(code byte, keep bool) {
 }
 
 func (d *DOS) int20(e *hle.Env) error { d.terminate(0, false); return nil }
-
-func (d *DOS) int23(e *hle.Env) error { d.terminate(0, false); return nil }
 
 func (d *DOS) int27(e *hle.Env) error { d.terminate(0, true); return nil }
 

@@ -163,6 +163,12 @@ func (d *DOS) open(path []byte, mode byte, create, truncate, exclusive bool) (ui
 	if errc != 0 {
 		return 0, errc
 	}
+	return d.openHost(drive, dp, host, exists, mode, create, truncate, exclusive)
+}
+
+// openHost opens or creates the host file that a path resolved to; dp is
+// the DOS-side name kept for diagnostics.
+func (d *DOS) openHost(drive int, dp, host string, exists bool, mode byte, create, truncate, exclusive bool) (uint16, uint16) {
 	if exists && exclusive {
 		return 0, errExists
 	}
@@ -261,12 +267,12 @@ func (d *DOS) findFirst(path []byte, attr byte) uint16 {
 	}
 	dir, name := splitDir(dp)
 	d.e.Note("%c:%s attr=%02X", 'A'+drive, dp, attr)
-	if attr == attrLabel {
-		return errNoMore
-	}
 	host, _, errc := d.fs.resolve(drive, dir, false)
 	if errc != 0 {
 		return errPathNotFound
+	}
+	if labelOnly(attr) { // MS-DOS DIR.ASM FindEntry: a volume-label search always looks in the root
+		host = d.fs.drives[drive]
 	}
 	if _, errc := d.fs.index(host); errc != 0 {
 		return errPathNotFound
@@ -280,9 +286,8 @@ func (d *DOS) findFirst(path []byte, attr byte) uint16 {
 	m.W16(a+0x0D, 0)
 	m.W16(a+0x0F, d.fs.dirID(host))
 	m.W16(a+0x11, findMagic)
-	if dir == `\` {
-		m.W16(a+0x0D, 2) // the root has no "." and ".."
-	}
+	// In the root, entry 0 is the volume label and entry 1 is unused (the
+	// root has no "." and ".."); elsewhere they are "." and "..".
 	if errc := d.findNext(); errc != 0 {
 		if errc == errNoMore {
 			return errFileNotFound
@@ -291,6 +296,11 @@ func (d *DOS) findFirst(path []byte, attr byte) uint16 {
 	}
 	return 0
 }
+
+// labelOnly reports whether a search attribute asks for the volume label
+// alone: DOS 3+ ignores the read-only, archive and device bits and, if only
+// 08h is left, returns just the label (RBIL INT 21h AH=4Eh, DIR.ASM).
+func labelOnly(attr byte) bool { return attr&^(attrRO|attrArch|0x40) == attrLabel }
 
 func (d *DOS) findNext() uint16 {
 	m := d.e.Mem
@@ -310,10 +320,24 @@ func (d *DOS) findNext() uint16 {
 	var pat [11]byte
 	copy(pat[:], m.Bytes(a+1, 11))
 	attr := m.R8(a + 0x0C)
+	drive := int(m.R8(a)) - 1
+	isRoot := drive >= 0 && drive < 26 && d.fs.drives[drive] == host
 	for pos := int(m.R16(a + 0x0D)); ; pos++ {
 		var e dirEntry
 		var ea byte
 		switch {
+		case pos < 2 && isRoot:
+			// Only a search whose attributes include 08h sees the label.
+			if pos != 0 || attr&attrLabel == 0 || d.fs.labels[drive] == "" {
+				continue
+			}
+			st, err := os.Stat(host)
+			if err != nil {
+				continue
+			}
+			lb := d.fs.labelEntry(drive)
+			e = dirEntry{dos: lb, host: lb, info: st}
+			ea = attrLabel
 		case pos < 2:
 			name := "."
 			if pos == 1 {
@@ -341,6 +365,9 @@ func (d *DOS) findNext() uint16 {
 			fn = fcbName(e.dos)
 		}
 		if !fcbMatch(pat, fn) {
+			continue
+		}
+		if labelOnly(attr) && ea != attrLabel {
 			continue
 		}
 		if ea&(attrHidden|attrSystem|attrDir)&^attr != 0 {

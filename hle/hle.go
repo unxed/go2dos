@@ -5,6 +5,7 @@ package hle
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/unxed/go2dos/cp"
@@ -47,9 +48,64 @@ type Env struct {
 
 	Trace *Tracer
 
-	handlers []entry
-	romNext  uint16
-	cur      *Record
+	// Lenient turns the fail-fast stop on an unsupported call into an
+	// answer: the call is traced, counted (Unsupported) and the handler's
+	// fallback (Fallback; none means registers unchanged) is applied, then
+	// the guest continues. It is meant for collecting what a program needs
+	// from the emulator (a closed-source program such as NC).
+	Lenient bool
+
+	// Event, if set, is told about notable DOS events ("exec-start",
+	// "exec-return"); the machine uses it to arm the post-event execution
+	// log (diagnostics).
+	Event func(kind string)
+
+	handlers  []entry
+	romNext   uint16
+	cur       *Record
+	fallbacks map[string]Handler
+	unsup     []*UnsupportedCall
+	unsupBy   map[string]*UnsupportedCall
+}
+
+// UnsupportedCall summarises one kind of unsupported call seen in lenient mode.
+type UnsupportedCall struct {
+	Handler string // trap name ("int21", "int10", ...)
+	What    string // the message of the Unsupported error (function, subfunction)
+	Count   int
+	First   string // CS:IP of the first caller
+	Last    string // CS:IP of the latest caller
+}
+
+// FormatUnsupported renders the lenient-mode summary, one line per call.
+func FormatUnsupported(list []UnsupportedCall) string {
+	if len(list) == 0 {
+		return "no unsupported calls\n"
+	}
+	var b strings.Builder
+	for _, u := range list {
+		fmt.Fprintf(&b, "%6d x %s: %s (first at %s, last at %s)\n", u.Count, u.Handler, strings.TrimPrefix(u.What, "unsupported: "), u.First, u.Last)
+	}
+	return b.String()
+}
+
+// Fallback sets what the trap called name answers to an unsupported call in
+// lenient mode, for example "not supported" in the way of that interface.
+func (e *Env) Fallback(name string, fn Handler) {
+	if e.fallbacks == nil {
+		e.fallbacks = map[string]Handler{}
+	}
+	e.fallbacks[name] = fn
+}
+
+// Unsupported returns the unsupported calls answered in lenient mode, in
+// the order they first appeared.
+func (e *Env) Unsupported() []UnsupportedCall {
+	out := make([]UnsupportedCall, len(e.unsup))
+	for i, u := range e.unsup {
+		out[i] = *u
+	}
+	return out
 }
 
 type entry struct {
@@ -155,8 +211,15 @@ func (e *Env) dispatch(c *cpu.CPU, n uint16) error {
 	rec := e.Trace.begin(e, h.name)
 	e.cur = rec
 	err := h.fn(e)
-	e.cur = nil
-	e.Trace.end(e, rec, err)
+	if err != nil && e.Lenient && errors.Is(err, ErrUnsupported) {
+		e.answerUnsupported(h.name, rec, err)
+		e.cur = nil
+		e.Trace.end(e, rec, err) // the trace keeps the error text
+		err = nil
+	} else {
+		e.cur = nil
+		e.Trace.end(e, rec, err)
+	}
 	if err != nil {
 		return err
 	}
@@ -164,6 +227,29 @@ func (e *Env) dispatch(c *cpu.CPU, n uint16) error {
 		c.RequestStop()
 	}
 	return nil
+}
+
+// answerUnsupported records an unsupported call and applies the fallback.
+func (e *Env) answerUnsupported(name string, rec *Record, err error) {
+	what := err.Error()
+	u := e.unsupBy[name+"|"+what]
+	if u == nil {
+		if e.unsupBy == nil {
+			e.unsupBy = map[string]*UnsupportedCall{}
+		}
+		u = &UnsupportedCall{Handler: name, What: what, First: rec.Caller}
+		e.unsupBy[name+"|"+what] = u
+		e.unsup = append(e.unsup, u)
+	}
+	u.Count++
+	u.Last = rec.Caller
+	if fb := e.fallbacks[name]; fb != nil {
+		_ = fb(e)
+	}
+	if rec.Note != "" {
+		rec.Note += " "
+	}
+	rec.Note += "[lenient: answered \"not supported\"]"
 }
 
 // Linear helpers for handlers.

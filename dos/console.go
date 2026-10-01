@@ -31,6 +31,11 @@ func (d *DOS) cursorCol() (int, int) {
 // readChar returns the next character for DOS character input; extended keys
 // return 0 followed by the scan code. ok is false if no key is available.
 func (d *DOS) readChar() (byte, bool) {
+	if d.breakChar { // Ctrl-Break: the CON driver returns ^C first
+		d.breakChar = false
+		return 3, true
+	}
+	d.skipNulls()
 	if d.pendScan != 0 {
 		c := d.pendScan
 		d.pendScan = 0
@@ -46,12 +51,19 @@ func (d *DOS) readChar() (byte, bool) {
 	return byte(w), true
 }
 
-func (d *DOS) charAvailable() bool { return d.pendScan != 0 || d.b.KeyAvailable() }
+func (d *DOS) charAvailable() bool {
+	d.skipNulls()
+	return d.breakChar || d.pendScan != 0 || d.b.KeyAvailable()
+}
 
 // lineInput implements cooked line editing shared by INT 21h/0Ah and reads
-// from CON. It returns false (and must be retried) until Enter is pressed.
-func (d *DOS) lineInput(max int) bool {
+// from CON. With ctrlC it stops (returns false) in front of a ^C so that the
+// caller can take it (statChk); conRead passes false. It returns false (and must be retried) until Enter is pressed.
+func (d *DOS) lineInput(max int, ctrlC bool) bool {
 	for {
+		if ctrlC && d.ctrlCWaiting() {
+			return false // the caller retries and statChk takes the ^C
+		}
 		c, ok := d.readChar()
 		if !ok {
 			return false
@@ -85,7 +97,7 @@ func (d *DOS) lineInput(max int) bool {
 // conRead implements reading from CON: a cooked line ending in CR LF.
 func (d *DOS) conRead(buf []byte) (int, uint16) {
 	if len(d.conIn) == 0 {
-		if !d.lineInput(126) {
+		if !d.lineInput(126, false) {
 			return 0, 0xFFFF // marker: retry
 		}
 		d.conIn = append(append([]byte{}, d.line...), 0x0D, 0x0A)
@@ -100,6 +112,13 @@ func (d *DOS) conRead(buf []byte) (int, uint16) {
 // charFunc handles INT 21h functions 01h-0Ch.
 func (d *DOS) charFunc(e *hle.Env, ah byte) error {
 	c := e.CPU
+	switch ah {
+	case 0x01, 0x02, 0x05, 0x08, 0x09, 0x0A, 0x0B:
+		// These functions check for ^C (RBIL; MS-DOS 4.0 CPMIO.ASM, CPMIO2.ASM).
+		if d.statChk(e) {
+			return nil
+		}
+	}
 	switch ah {
 	case 0x01, 0x07, 0x08:
 		ch, ok := d.readChar()
@@ -148,7 +167,7 @@ func (d *DOS) charFunc(e *hle.Env, ah byte) error {
 		if max == 0 {
 			return nil
 		}
-		if !d.lineInput(max - 1) {
+		if !d.lineInput(max-1, true) {
 			e.Idle()
 			return cpu.ErrRetry
 		}

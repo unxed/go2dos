@@ -1,0 +1,25 @@
+third_party/vc: сборочный каркас Volkov Commander для go2dos
+
+Исходный код Volkov Commander (versions/4.05, versions/4.99.09 репозитория
+https://github.com/ddanila/vc) не входит в этот каталог: tools/build-vc.sh
+получает его по закреплённому коммиту. Он распространяется на условиях
+BSD-2-Clause:
+
+  Copyright 1991-2000 Vsevolod V. Volkov
+
+Полный текст условий — в файле LICENSE (копия LICENSE.TXT из версий 4.05 и
+4.99.09). Ветка build репозитория ddanila/vc добавляет собственные правки и
+тесты (владелец ddanila); авторство оригинального кода принадлежит
+Vsevolod V. Volkov, как указано в README ветки master ddanila/vc.
+
+patches/vc-4.05-jwasm.patch — производная работа от исходников VC 4.05 и
+распространяется на тех же условиях BSD-2-Clause (LICENSE).
+
+patches/jwasm-tasm-compat.patch — изменения исходников JWasm
+(https://github.com/Baron-von-Riedesel/JWasm), которые лицензируются по
+Sybase Open Watcom Public License v1.0, как сам JWasm. JWasm собирается
+из исходников при запуске tools/build-vc.sh; в репозитории его бинарников нет.
+Собранные в CI бинарники VC — результат ассемблирования исходников VC
+(BSD-2-Clause) и не содержат кода JWasm.
+
+Borland TASM/TLINK не используются и не распространяются.

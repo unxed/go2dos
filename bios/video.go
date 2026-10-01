@@ -27,6 +27,7 @@ const (
 	bdaPalette    = 0x466
 	bdaTicks      = 0x46C
 	bdaMidnight   = 0x470
+	bdaBreak      = 0x471 // bit 7: Ctrl-Break was pressed
 	bdaKbdStart   = 0x480
 	bdaKbdEnd     = 0x482
 	bdaRows       = 0x484
