@@ -14,6 +14,12 @@ type parentFrame struct {
 	psp            uint16
 	ss, sp         uint16 // stack with the parent's INT 21h frame on top
 	dtaSeg, dtaOff uint16
+	// Registers at the parent's INT 21h/4B00h; DOS gives them back when
+	// the child ends (MS-DOS 4.0 DISP.ASM restore_world, called from
+	// CTRLC.ASM reset_return), so a parent may keep DS, ES, BP... across EXEC.
+	r  [8]uint16
+	ds uint16
+	es uint16
 }
 
 // image is a program file ready to be placed in memory.
@@ -149,7 +155,8 @@ func (d *DOS) exec(e *hle.Env) error {
 
 	// Parent state, resumed on termination.
 	parent := d.psp
-	d.frames = append(d.frames, parentFrame{psp: parent, ss: e.Seg(cpu.SS), sp: c.R[cpu.SP], dtaSeg: d.dtaSeg, dtaOff: d.dtaOff})
+	d.frames = append(d.frames, parentFrame{psp: parent, ss: e.Seg(cpu.SS), sp: c.R[cpu.SP], dtaSeg: d.dtaSeg, dtaOff: d.dtaOff,
+		r: c.R, ds: e.Seg(cpu.DS), es: e.Seg(cpu.ES)})
 	m.W16(mem.Lin(parent, 0x2E), c.R[cpu.SP])
 	m.W16(mem.Lin(parent, 0x30), e.Seg(cpu.SS))
 
@@ -271,7 +278,11 @@ func (d *DOS) endChild(code byte, keep bool) bool {
 	// terminate address and with CF clear.
 	c.SetSeg(cpu.SS, f.ss)
 	flags := c.Read16(cpu.SS, f.sp+4)
-	c.R[cpu.SP] = f.sp + 6
+	sp := f.sp + 6
+	c.R = f.r
+	c.R[cpu.SP] = sp
+	c.SetSeg(cpu.DS, f.ds)
+	c.SetSeg(cpu.ES, f.es)
 	c.SetSeg(cpu.CS, retCS)
 	c.IP = retIP
 	c.SetFlags(flags &^ cpu.FlagCF)
