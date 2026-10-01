@@ -134,3 +134,34 @@ func TestTopViewGetVerNotLoaded(t *testing.T) {
 		t.Fatalf("exit code %d, want 0", c)
 	}
 }
+
+// INT 10h AX=1C00h (VGA save/restore state, buffer size): "AL = 1Ch if
+// supported"; the emulator answers "not supported" (AL stays 00h) and the
+// program goes on without -lenient (DN 1.51 asks this with CX=0007h).
+func TestVideoStateNotSupported(t *testing.T) {
+	prog := []byte{
+		0xB8, 0x00, 0x1C, // mov ax,1C00h
+		0xB9, 0x07, 0x00, // mov cx,7
+		0xCD, 0x10, // int 10h
+		0x3C, 0x1C, // cmp al,1Ch
+		0x74, 0x05, // je bad
+		0xB8, 0x00, 0x4C, 0xCD, 0x21, // mov ax,4C00h; int 21h
+		0xB8, 0x01, 0x4C, 0xCD, 0x21, // bad: mov ax,4C01h; int 21h
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "VS.COM"), prog, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(Config{Drives: map[byte]string{'C': dir}, Codepage: 437})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Load(`C:\VS.COM`, ""); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if c := exitCode(t, m.Run(ctx)); c != 0 {
+		t.Fatalf("exit code %d, want 0", c)
+	}
+}

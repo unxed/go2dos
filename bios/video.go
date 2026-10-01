@@ -379,6 +379,16 @@ func (v *Video) int10(e *hle.Env) error {
 		} else {
 			return hle.Unsupported("INT 10h AX=%04Xh", c.R[cpu.AX])
 		}
+	case 0x1C:
+		// Save/restore video state (VGA). RBIL: AL=00h returns the buffer
+		// size, "AL = 1Ch if function supported". The emulated text screen
+		// has no such state to hand out: AL stays 00h, which is "not
+		// supported", and a program that checks AL does not go on to call
+		// AL=01h/02h (those stay unsupported, fail fast).
+		if c.AL() != 0 {
+			return hle.Unsupported("INT 10h AX=%04Xh (save/restore video state)", c.R[cpu.AX])
+		}
+		e.Note("video state save/restore: not supported (AL != 1Ch)")
 	case 0xFF:
 		// TopView/DESQview "update screen from shadow buffer" (RBIL, INT 10h
 		// AH=FFh: CX = changed characters, ES:DI -> first one in the shadow
