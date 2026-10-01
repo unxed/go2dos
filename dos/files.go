@@ -163,6 +163,12 @@ func (d *DOS) open(path []byte, mode byte, create, truncate, exclusive bool) (ui
 	if errc != 0 {
 		return 0, errc
 	}
+	return d.openHost(drive, dp, host, exists, mode, create, truncate, exclusive)
+}
+
+// openHost opens or creates the host file that a path resolved to; dp is
+// the DOS-side name kept for diagnostics.
+func (d *DOS) openHost(drive int, dp, host string, exists bool, mode byte, create, truncate, exclusive bool) (uint16, uint16) {
 	if exists && exclusive {
 		return 0, errExists
 	}

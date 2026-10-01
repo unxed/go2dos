@@ -61,10 +61,14 @@ func newHarness(t *testing.T, page int, cfg Config, files ...string) *harness {
 }
 
 // call runs INT 21h with the given registers and reports CF.
-func (h *harness) call(ax, bx, cx, dx uint16) bool {
+func (h *harness) call(ax, bx, cx, dx uint16) bool { return h.call6(ax, bx, cx, dx, 0, 0) }
+
+// call6 is call with SI and DI as well.
+func (h *harness) call6(ax, bx, cx, dx, si, di uint16) bool {
 	h.t.Helper()
 	c := h.e.CPU
 	c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX] = ax, bx, cx, dx
+	c.R[cpu.SI], c.R[cpu.DI] = si, di
 	c.SetSeg(cpu.DS, tDS)
 	c.SetSeg(cpu.ES, tDS)
 	c.SetSeg(cpu.SS, tStack)

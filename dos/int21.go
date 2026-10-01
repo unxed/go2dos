@@ -398,11 +398,7 @@ func (d *DOS) int21(e *hle.Env) error {
 	case 0x6C:
 		d.extOpen(e)
 	case 0x71:
-		// Long file names are not implemented yet: the documented "not
-		// supported" answer makes programs fall back to short names.
-		e.Note("LFN not supported")
-		c.R[cpu.AX] = 0x7100
-		e.SetCF(true)
+		return d.lfn(e)
 	case 0x73:
 		c.R[cpu.AX] = 0x7300
 		e.SetCF(true)

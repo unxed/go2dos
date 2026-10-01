@@ -70,6 +70,9 @@ type DOS struct {
 	line      []byte
 	lineDone  bool
 	conIn     []byte // cooked CON input not yet consumed by read
+
+	finds    map[uint16]*lfnFind // open long-name searches (71xx filefind handles)
+	nextFind uint16
 }
 
 // New installs the kernel.
