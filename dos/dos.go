@@ -54,6 +54,9 @@ type Config struct {
 	// (crit.go). Without such drives no critical error ever occurs.
 	NotReady     map[byte]bool
 	WriteProtect map[byte]bool
+	// Pipe enables pipe mode: stdin/stdout/stderr are connected to host streams
+	// with OEM ↔ UTF-8 translation.
+	Pipe bool
 }
 
 // DOS is the kernel state.
@@ -85,6 +88,7 @@ type DOS struct {
 	conIn     []byte // cooked CON input not yet consumed by read
 
 	noLFN bool
+	pipe  bool // pipe mode: stdin/stdout/stderr connected to host streams
 
 	faults    [lastDrive]driveFault
 	anyFault  bool
@@ -101,7 +105,7 @@ type DOS struct {
 
 // New installs the kernel.
 func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
-	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN}
+	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN, pipe: cfg.Pipe}
 	fs, err := newFS(e, cfg)
 	if err != nil {
 		return nil, err
@@ -148,7 +152,20 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 		}
 	}
 
-	d.sft = []*openFile{{dev: devCON, refs: 3}, {dev: devNUL, name: "AUX", refs: 1}, {dev: devNUL, name: "PRN", refs: 1}}
+	// Initialize handles 0, 1, 2 based on mode
+	if cfg.Pipe {
+		// Pipe mode: stdin, stdout, stderr connected to host streams
+		d.sft = []*openFile{
+			{dev: devStdIn, name: "STDIN", refs: 1},
+			{dev: devStdOut, name: "STDOUT", refs: 1},
+			{dev: devStdErr, name: "STDERR", refs: 1},
+			{dev: devNUL, name: "AUX", refs: 1},
+			{dev: devNUL, name: "PRN", refs: 1},
+		}
+	} else {
+		// Normal mode: all three handles point to CON
+		d.sft = []*openFile{{dev: devCON, refs: 3}, {dev: devNUL, name: "AUX", refs: 1}, {dev: devNUL, name: "PRN", refs: 1}}
+	}
 	d.strategy = 0
 
 	e.HookInt(0x20, "int20", d.int20)

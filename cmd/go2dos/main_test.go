@@ -71,3 +71,45 @@ func TestNoLenientFailsFast(t *testing.T) {
 		t.Errorf("unexpected stderr:\n%s", out)
 	}
 }
+
+// runGo2dosWithStdin runs go2dos with stdin provided as a pipe.
+func runGo2dosWithStdin(t *testing.T, stdin string, args ...string) (int, string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	// Copy hello.com to temp directory
+	hello, err := os.ReadFile("testdata/progs/hello.com")
+	if err != nil {
+		t.Skipf("skipping test: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "hello.com"), hello, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], append(args, filepath.Join(dir, "hello.com"))...)
+	cmd.Env = append(os.Environ(), "GO2DOS_TEST_RUN=1")
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	var outb, errb bytes.Buffer
+	cmd.Stdout = &outb
+	cmd.Stderr = &errb
+	err = cmd.Run()
+	code := 0
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		code = ee.ExitCode()
+	} else if err != nil && err.Error() != "<nil>" {
+		t.Fatal(err)
+	}
+	return code, outb.String(), errb.String()
+}
+
+// TestPipeMode tests that output goes to stdout when stdin is piped.
+func TestPipeMode(t *testing.T) {
+	code, stdout, stderr := runGo2dosWithStdin(t, "", "-timeout", "10s")
+	if code != 7 {
+		t.Errorf("exit code %d, want 7\n%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "Hello from go2dos") {
+		t.Errorf("expected output in stdout, got:\n%s", stdout)
+	}
+}

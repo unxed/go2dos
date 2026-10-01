@@ -73,6 +73,9 @@ type Config struct {
 	Display   string
 	OnStream  func(b []byte)
 	OnDisplay func(grid bool)
+	// Pipe enables pipe mode: stdin/stdout/stderr are connected to host streams
+	// with OEM ↔ UTF-8 translation. Set by the CLI when stdin is not a terminal.
+	Pipe bool
 	// Break lists CS:IP addresses (CS<<16 | IP); reaching one logs the
 	// registers to the trace (diagnostics).
 	Break []uint32
@@ -201,7 +204,7 @@ func New(cfg Config) (*Machine, error) {
 		env = []string{`COMSPEC=C:\COMMAND.COM`, `PATH=C:\`, `PROMPT=$P$G`}
 	}
 	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env, Labels: cfg.Labels, NoLFN: cfg.NoLFN,
-		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect})
+		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect, Pipe: cfg.Pipe})
 	if err != nil {
 		return nil, err
 	}
