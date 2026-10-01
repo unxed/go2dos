@@ -22,15 +22,17 @@ import (
 // termHost is the plain ANSI terminal front end (frontend.Host and
 // frontend.Console).
 type termHost struct {
-	rend *renderer
-	sel  *selectionHandler
-	m    *machine.Machine
+	rend      *renderer
+	sel       *selectionHandler
+	m         *machine.Machine
+	clipboard frontend.Clipboard
 }
 
 func newTermHost(w io.Writer) *termHost {
 	return &termHost{
-		rend: newRenderer(w),
-		sel:  newSelectionHandler(),
+		rend:      newRenderer(w),
+		sel:       newSelectionHandler(),
+		clipboard: &frontend.HostClipboard{},
 	}
 }
 
@@ -66,6 +68,12 @@ func (h *termHost) Start(m *machine.Machine, display string, stop func(dump bool
 // Returns true if the key was handled, false if it should be passed to the machine.
 func (h *termHost) handleTerminalIntegration(ke bios.KeyEvent) bool {
 	scr := h.m.Screen()
+
+	// Ctrl-V for pasting from clipboard
+	if ke.Scan == 0x2F && ke.Mods&bios.ModCtrl != 0 { // V with Ctrl
+		h.pasteClipboard()
+		return true
+	}
 
 	// Shift+Arrow keys for text selection
 	switch ke.Scan {
@@ -116,6 +124,49 @@ func (h *termHost) handleTerminalIntegration(ke bios.KeyEvent) bool {
 	}
 
 	return false
+}
+
+// pasteClipboard reads text from the host clipboard and converts it to keystrokes,
+// sending them to the machine in portions (max 15 keystrokes at a time to fit in the BIOS buffer).
+func (h *termHost) pasteClipboard() {
+	text, err := h.clipboard.GetText()
+	if err != nil {
+		// Silently fail if clipboard is not available
+		return
+	}
+
+	// Convert text to keystrokes
+	const maxPortion = 15 // BIOS keyboard buffer holds 15 keystrokes
+	var pending []bios.KeyEvent
+
+	for _, r := range text {
+		if r == '\n' {
+			// Convert newline to Enter key
+			if k, ok := keys.Named("Enter", 0); ok {
+				pending = append(pending, k)
+			}
+		} else if r < 0x80 {
+			// ASCII character
+			if k, ok := keys.Char(r, h.m.CP); ok {
+				pending = append(pending, k)
+			}
+		}
+
+		// Send in portions to avoid filling the BIOS buffer
+		if len(pending) >= maxPortion {
+			for _, ke := range pending {
+				h.m.PushKey(ke)
+			}
+			pending = pending[:0]
+			// Small delay to allow buffer processing
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	// Send remaining keystrokes
+	for _, ke := range pending {
+		h.m.PushKey(ke)
+	}
 }
 
 func setupTerminal(alt bool) (func(), error) {

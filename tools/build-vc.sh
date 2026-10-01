@@ -98,6 +98,7 @@ asm 4.05 VCSETUP.ASM VCSETUP.COM -Zne -Zg -bin
 echo "== VC 4.99.09"
 fresh "$out/work/4.99.09"
 cp "$src"/versions/4.99.09/* "$out/work/4.99.09/"
+(cd "$out/work/4.99.09" && git apply -p1 "$tp/patches/vc-4.99.09-psp-startmain.patch")
 asm 4.99.09 VC.ASM    VC.COM -Zne -Zg -DOFFICIAL -bin
 asm 4.99.09 VCOVL.ASM VC.OVL -Zne -Zg -DOFFICIAL -mz
 

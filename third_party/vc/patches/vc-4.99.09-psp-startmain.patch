@@ -1,0 +1,16 @@
+--- a/versions/4.99.09/VC.ASM
++++ b/versions/4.99.09/VC.ASM
+@@ -450,12 +450,15 @@
+ 
+ ;---------------------------------------------------------------
+ OvlPrm		DB	OvlPrm_L-2, 0, VcID
+ OvlPrmPoint	DW	StartMain, 0
+ 		DB	13
++		DB	0, 0, 0, 0, 0, 0, 0, 0	; Padding to reach PSP[0x90]
+ OvlPrm_L	=	$ - OvlPrm
+ OvlExt_F	DB	'OVL',0
+ Command_S	DB	'command processor', 0
+ RunErr_S	DB	'There is not enough memory to run this command', 13,10,0
+ BadFile_S	DB	13,10, "Bad or missing ", 0
+ Retry_S		DB	13,10, "Press ENTER to try again or ESC to abort", 13,10,0
+ 
