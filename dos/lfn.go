@@ -410,6 +410,14 @@ type lfnFind struct {
 func (d *DOS) lfn(e *hle.Env) error {
 	c := e.CPU
 	f := d.fs
+	if d.noLFN {
+		// Config.NoLFN: no 71xx function at all, not even the volume query
+		// 71A0h, so the program sees no sign of long names.
+		e.Note("LFN 71%02Xh not supported (NoLFN)", c.AL())
+		c.R[cpu.AX] = 0x7100
+		e.SetCF(true)
+		return nil
+	}
 	switch al := c.AL(); al {
 	case 0x0D: // reset drive
 		d.ok(e)

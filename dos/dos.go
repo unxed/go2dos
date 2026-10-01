@@ -44,6 +44,10 @@ type Config struct {
 	// A host directory has no label, so without an entry the drive reports
 	// "NO NAME" and FindFirst with attribute 08h finds nothing.
 	Labels map[byte]string
+	// NoLFN turns the long-name API off: every INT 21h AH=71h call answers
+	// AX=7100h, CF=1, as a DOS without LFN does (for programs that must be
+	// checked without long names, such as Norton Commander).
+	NoLFN bool
 }
 
 // DOS is the kernel state.
@@ -71,13 +75,14 @@ type DOS struct {
 	lineDone  bool
 	conIn     []byte // cooked CON input not yet consumed by read
 
+	noLFN    bool
 	finds    map[uint16]*lfnFind // open long-name searches (71xx filefind handles)
 	nextFind uint16
 }
 
 // New installs the kernel.
 func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
-	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0}
+	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN}
 	fs, err := newFS(e, cfg)
 	if err != nil {
 		return nil, err

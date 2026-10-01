@@ -416,3 +416,19 @@ func TestLFNAttributes(t *testing.T) {
 		t.Errorf("missing file: AX=%04X", h.reg(cpu.AX))
 	}
 }
+
+// Config.NoLFN: every 71xx answers 7100h, including the volume query that
+// would announce LFN support, and the classic calls keep working.
+func TestNoLFN(t *testing.T) {
+	h := newHarness(t, 437, Config{NoLFN: true}, "Long File Name.txt")
+	h.put(nameOff, `C:\`)
+	for _, ax := range []uint16{0x710D, 0x7139, 0x714E, 0x7160, 0x716C, 0x71A0} {
+		if !h.call6(ax, 0, 32, nameOff, 0, bufOff) || h.reg(cpu.AX) != 0x7100 {
+			t.Errorf("AX=%04X: AX=%04X, want CF and 7100", ax, h.reg(cpu.AX))
+		}
+	}
+	h.put(nameOff, `C:\*.*`)
+	if h.call(0x4E00, 0, 0, nameOff) {
+		t.Errorf("the classic FindFirst failed: AX=%04X", h.reg(cpu.AX))
+	}
+}

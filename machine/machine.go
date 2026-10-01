@@ -54,6 +54,9 @@ type Config struct {
 	// are written to the trace, answered "not supported" and summed up in
 	// Unsupported. Without it the machine stops on the first one (fail fast).
 	Lenient bool
+	// NoLFN turns the long-name API (INT 21h AH=71h) off: every call answers
+	// AX=7100h, CF=1 ("not supported"), and 71A0h does not announce LFN.
+	NoLFN bool
 	// Watch lists linear addresses whose writes are logged to the trace
 	// together with the writing instruction (diagnostics).
 	Watch []uint32
@@ -167,7 +170,7 @@ func New(cfg Config) (*Machine, error) {
 	if env == nil {
 		env = []string{`COMSPEC=C:\COMMAND.COM`, `PATH=C:\`, `PROMPT=$P$G`}
 	}
-	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env, Labels: cfg.Labels})
+	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env, Labels: cfg.Labels, NoLFN: cfg.NoLFN})
 	if err != nil {
 		return nil, err
 	}
