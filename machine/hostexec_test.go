@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -120,6 +121,67 @@ func TestHostExecAPIDir(t *testing.T) {
 func TestHostExecAPIDisabled(t *testing.T) {
 	text, _ := runHostAPI(t, Config{}, " C echo api-ok")
 	if l := lineList(text); l[0] != "RC=0005 CF=01" {
+		t.Fatalf("screen:\n%s", text)
+	}
+}
+
+// waitFile polls for a file written by a detached host process.
+func waitFile(t *testing.T, p string) string {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		if b, err := os.ReadFile(p); err == nil && len(b) > 0 {
+			return string(b)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("no %s", p)
+	return ""
+}
+
+// START host-command runs detached (no waiting, no output on the screen);
+// the line goes to the host shell whole, redirects included.
+func TestStartHostCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh")
+	}
+	_, text, dir := runShellCfg(t, Config{HostExec: true}, ` /C START echo started-ok > st.out`, nil)
+	if l := lineList(text); l[0] != "EXIT AX=0000" {
+		t.Fatalf("screen:\n%s", text)
+	}
+	if got := waitFile(t, filepath.Join(dir, "st.out")); got != "started-ok\n" {
+		t.Fatalf("out %q", got)
+	}
+}
+
+// START file hands a file (long name too) to the opener; -open-cmd replaces
+// it: here the "opener" writes the path it was given.
+func TestStartOpensFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh")
+	}
+	_, text, dir := runShellCfg(t, Config{HostExec: true, OpenCmd: "echo > opened.out"},
+		` /C START "Long Doc Name.txt"`, map[string]string{"Long Doc Name.txt": "x"})
+	if l := lineList(text); l[0] != "EXIT AX=0000" {
+		t.Fatalf("screen:\n%s", text)
+	}
+	got := waitFile(t, filepath.Join(dir, "opened.out"))
+	if !strings.HasSuffix(strings.TrimSpace(got), "Long Doc Name.txt") {
+		t.Fatalf("opener got %q", got)
+	}
+}
+
+// START of a DOS program is the same as typing it; START needs -host-exec.
+func TestStartDOSProgramAndOff(t *testing.T) {
+	_, text, _ := runShellCfg(t, Config{HostExec: true}, " /C START hello", nil)
+	if l := lineList(text); l[0] == "" || strings.HasPrefix(l[0], "Bad command") || strings.HasPrefix(l[0], "Host commands") {
+		t.Fatalf("screen:\n%s", text)
+	}
+	_, text, _ = runShell(t, " /C START hello", nil)
+	if l := lineList(text); !strings.HasPrefix(l[0], "Host commands are disabled") || l[1] != "EXIT AX=00FF" {
+		t.Fatalf("screen:\n%s", text)
+	}
+	_, text, _ = runShellCfg(t, Config{HostExec: true}, " /C START", nil)
+	if l := lineList(text); !strings.HasPrefix(l[0], "Usage: START") {
 		t.Fatalf("screen:\n%s", text)
 	}
 }

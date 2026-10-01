@@ -259,6 +259,10 @@ file (up to a 0 byte or Ctrl-Z), `CLIP /C` clears it. Without a clipboard (headl
 "No clipboard in this session" and sets the exit code 1. Redirections `<`, `>`, `>>` take a
 name in double quotes (`> "long name.txt"`) and long names.
 
+`START` (implemented, `dos/shstart.go`, needs `-host-exec`): `START file` opens a file with the
+host opener (`-open-cmd` replaces it), `START command` runs a host command detached (no wait, no
+output), `START dosprog` runs a DOS program as usual.
+
 `CLS` and `MODE CON` (implemented, `dos/shmode.go`; tests `machine/shell_test.go`): `CLS` clears
 the emulated screen and, in console display mode while the stream (not the grid) is shown, the
 terminal too (the optional method `Clear` of the host, `ESC[2J ESC[H`). `MODE CON` shows the

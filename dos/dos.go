@@ -65,6 +65,9 @@ type Config struct {
 	// the host PATH (hostexec.go). It leaves the sandbox, so it is off by
 	// default.
 	HostExec bool
+	// OpenCmd replaces the host opener of START (xdg-open, open, cmd start):
+	// a shell command line, the path is appended as its last argument.
+	OpenCmd string
 	// Stdin, Stdout and Stderr switch on pipe mode (hostio.go): handles 0, 1
 	// and 2 of the first program are the host's streams, converted between
 	// UTF-8 and the OEM code page; the console teletype goes to Stdout. A nil
@@ -104,6 +107,7 @@ type DOS struct {
 
 	noLFN    bool
 	hostExec bool
+	openCmd  string // START: the opener of the host (shstart.go)
 	// Text window API (textwin.go): the program asked to be told of size
 	// changes; the role of the screen; the machine's hook for a role change.
 	winWatch bool
@@ -134,7 +138,7 @@ type DOS struct {
 
 // New installs the kernel.
 func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
-	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN, clip: cfg.Clipboard, hostExec: cfg.HostExec}
+	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN, clip: cfg.Clipboard, hostExec: cfg.HostExec, openCmd: cfg.OpenCmd}
 	fs, err := newFS(e, cfg)
 	if err != nil {
 		return nil, err

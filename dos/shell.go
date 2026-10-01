@@ -420,7 +420,7 @@ var shellInternal = map[string]bool{
 	"DIR": true, "CD": true, "CHDIR": true, "MD": true, "MKDIR": true, "RD": true, "RMDIR": true,
 	"SET": true, "ECHO": true, "TYPE": true, "VER": true, "EXIT": true, "REM": true, "PATH": true,
 	"PROMPT": true, "DEL": true, "ERASE": true, "REN": true, "RENAME": true, "COPY": true,
-	"CLIP": true, "MODE": true, "CALL": true, "GOTO": true, "IF": true, "FOR": true, "PAUSE": true, "CLS": true, "SHIFT": true,
+	"CLIP": true, "MODE": true, "START": true, "CALL": true, "GOTO": true, "IF": true, "FOR": true, "PAUSE": true, "CLS": true, "SHIFT": true,
 }
 
 // redirect выполняет перенаправление вывода/ввода оболочки; возвращает
@@ -487,6 +487,9 @@ func (d *DOS) shellRun(e *hle.Env, st *shellState, line string) bool {
 			d.hostRun(st, strings.TrimSpace(line[1:]))
 		}
 		return false
+	}
+	if arg, ok := startArg(line); ok {
+		return d.shStart(e, st, arg)
 	}
 	orig := line
 	line, redir, ok := splitRedir(line)

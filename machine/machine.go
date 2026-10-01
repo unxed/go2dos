@@ -64,6 +64,8 @@ type Config struct {
 	// HostExec lets the built-in COMMAND.COM run host commands ("!cmd" or a
 	// command found in the host PATH): an exit from the sandbox, off by default.
 	HostExec bool
+	// OpenCmd is the opener of START (-open-cmd); empty — the host's default.
+	OpenCmd string
 	// Lenient makes unsupported INT 21h/10h/15h/16h/... calls non-fatal: they
 	// are written to the trace, answered "not supported" and summed up in
 	// Unsupported. Without it the machine stops on the first one (fail fast).
@@ -240,7 +242,7 @@ func New(cfg Config) (*Machine, error) {
 		env = []string{`COMSPEC=C:\COMMAND.COM`, `PATH=C:\`, `PROMPT=$P$G`}
 	}
 	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, ReadOnly: cfg.ReadOnly, Confine: cfg.Confine, Current: cfg.Drive, Env: env, Labels: cfg.Labels, NoLFN: cfg.NoLFN,
-		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect, Clipboard: cfg.Clipboard, HostExec: cfg.HostExec,
+		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect, Clipboard: cfg.Clipboard, HostExec: cfg.HostExec, OpenCmd: cfg.OpenCmd,
 		Stdin: cfg.Stdin, Stdout: cfg.Stdout, Stderr: cfg.Stderr})
 	if err != nil {
 		return nil, err
