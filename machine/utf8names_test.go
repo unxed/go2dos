@@ -2,10 +2,14 @@ package machine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/unxed/go2dos/cp"
+	"github.com/unxed/go2dos/dos"
 )
 
 // In UTF-8 mode 714Eh returns the long name in UTF-8 and the short name as an
@@ -34,13 +38,18 @@ func TestUTF8Names(t *testing.T) {
 	if c := exitCode(t, m.Run(ctx)); c != 0 {
 		t.Fatalf("exit code %d; screen:\n%s", c, m.Screen().Text())
 	}
+	page, err := cp.Get(437)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, jaLong := dos.AliasFor(page, "дом 世界.txt")
 	want := []string{
 		"SET=FF PREV=0000",
 		"NAME=D0B4D0BED0BC20E4B896E7958C2E747874", // дом 世界.txt in UTF-8
 		"SHORT=_~1.TXT",
 		"MODE=FDE9",
-		"NAME0=5F5F5F205F5F2E747874", // "___ __.txt": unmappable characters are '_'
-		"BAD=010003",                 // CF set, AX=3
+		"NAME0=" + fmt.Sprintf("%X", jaLong), // "___ __~HHHH.txt": '_' for unmappable characters, a unique tag before the extension
+		"BAD=010003",                         // CF set, AX=3
 	}
 	for i, w := range want {
 		if got := m.Screen().Line(i); got != w {

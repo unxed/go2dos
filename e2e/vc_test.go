@@ -66,7 +66,10 @@ func sessionOpts(t *testing.T, version, script string, extra map[string]string, 
 		os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644)
 	}
 
-	cfg.Drives, cfg.Codepage = map[byte]string{'C': dir}, 437
+	cfg.Drives = map[byte]string{'C': dir}
+	if cfg.Codepage == 0 {
+		cfg.Codepage = 437
+	}
 	m, err := machine.New(cfg)
 	if err != nil {
 		t.Fatal(err)

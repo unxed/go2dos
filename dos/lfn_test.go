@@ -99,10 +99,13 @@ func TestLFNFind(t *testing.T) {
 	}
 	// Names are in cp866; the Japanese name does not fit and gets '_'.
 	enc := func(s string) string { b, _ := h.d.fs.e.CP.Encode(s); return string(b) }
+	// The Japanese name is given out under a unique alias and a long form with
+	// '_' for each character and ~HHHH before the extension (names.go).
+	jaShort, jaLong := AliasFor(h.d.fs.e.CP, "名前.txt")
 	want := map[string]found{
 		enc("Длинное имя файла.txt"): {enc("Длинное имя файла.txt"), enc("ДЛИННО~1.TXT"), 0x20, 0},
 		"readme.txt":    {"readme.txt", "README.TXT", 0x20, 0},
-		"__.txt":        {"__.txt", "NAME~1.TXT", 0x20, 1},
+		jaLong:          {jaLong, jaShort, 0x20, 1},
 		"Sub Directory": {"Sub Directory", "SUBDIR~1", 0x10, 0},
 	}
 	if len(all) != len(want) {
@@ -114,7 +117,7 @@ func TestLFNFind(t *testing.T) {
 			t.Errorf("unexpected entry %+v", f)
 			continue
 		}
-		if f.short != w.short && f.long != "__.txt" { // the alias of a non-OEM name is not asserted
+		if f.short != w.short {
 			t.Errorf("%q: short name %q, want %q", f.long, f.short, w.short)
 		}
 		if f.attr != w.attr || f.flags != w.flags {

@@ -83,6 +83,9 @@ type fsys struct {
 	utf8Mode func() bool
 	dirIDs   map[string]uint16
 	dirs     []string
+	// names is the registry of aliases for host names that the code page
+	// cannot hold (names.go); it lives as long as the machine.
+	names *nameReg
 }
 
 func newFS(e *hle.Env, cfg Config) (*fsys, error) {
@@ -227,6 +230,7 @@ func (f *fsys) index(hostDir string) (*dirIndex, uint16) {
 		host string
 		up   []byte
 		info fs.FileInfo
+		ok   bool // the name fits the code page (UTF-8 mode: it is ASCII)
 	}
 	var later []pending
 	for _, de := range list {
@@ -245,7 +249,23 @@ func (f *fsys) index(hostDir string) (*dirIndex, uint16) {
 				continue
 			}
 		}
-		later = append(later, pending{de.Name(), up, info})
+		later = append(later, pending{de.Name(), up, info, ok})
+	}
+	if !f.utf8() {
+		// Names with characters that the code page lacks get an alias that
+		// is unique and can be turned back into the name (names.go).
+		var rest []pending
+		for _, p := range later {
+			if !p.ok {
+				taken := func(dosName string) bool { _, dup := ix.byDOS[dosName]; return dup }
+				if rec := f.nameRecFor(p.host, taken); rec != nil {
+					ix.add(dirEntry{dos: rec.shortName(), host: p.host, info: p.info})
+					continue
+				}
+			}
+			rest = append(rest, p)
+		}
+		later = rest
 	}
 	for _, p := range later {
 		base, ext := p.up, []byte(nil)
@@ -411,7 +431,18 @@ func (f *fsys) resolve(drive int, dpath string, create bool) (string, bool, uint
 			if !create {
 				return "", false, errFileNotFound
 			}
-			return filepath.Join(host, f.e.CP.Decode([]byte(part))), false, 0
+			name := f.e.CP.Decode([]byte(part))
+			if h, ok := f.hostNameFor(part, false); ok {
+				// An alias from a listing, maybe with another extension:
+				// the file with the original name (names.go).
+				name = h
+				if ix, errc := f.index(host); errc == 0 {
+					if i, ok := ix.byHost[name]; ok {
+						return filepath.Join(host, ix.entries[i].host), true, 0
+					}
+				}
+			}
+			return filepath.Join(host, name), false, 0
 		}
 		if !last && !e.info.IsDir() {
 			return "", false, errPathNotFound
