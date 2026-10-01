@@ -30,6 +30,7 @@ type termHost struct {
 	rend *renderer
 	in   *stdinReader
 	clip frontend.MemoryClipboard // what the DOS clipboard server (INT 2Fh/17xx) sees
+	sel  *selection               // selection mode (input goroutine only), nil: off
 
 	fd       int
 	st       *term.State
@@ -59,8 +60,20 @@ func (h *termHost) Start(m *machine.Machine, display string, stop func(dump bool
 	if err != nil {
 		return nil, err
 	}
-	p := &inputParser{page: m.CP, push: m.PushKey, paste: m.PasteText, cmd: func(c termCmd) {
+	push := func(k bios.KeyEvent) {
+		if h.sel != nil {
+			if h.rend.overlayOn() {
+				h.selectKey(m, k)
+				return
+			}
+			h.sel = nil // the grid went away (console mode)
+		}
+		m.PushKey(k)
+	}
+	p := &inputParser{page: m.CP, push: push, paste: m.PasteText, cmd: func(c termCmd) {
 		switch c {
+		case cmdSelect:
+			h.startSelect(m)
 		case cmdCopy:
 			h.copyScreen(m)
 		case cmdPaste:
@@ -81,6 +94,37 @@ func (h *termHost) copyScreen(m *machine.Machine) {
 	text := m.Screen().Text()
 	h.clip.SetText(text)
 	h.rend.copyToTerminal(text)
+}
+
+// startSelect turns the selection mode on (the grid display only).
+func (h *termHost) startSelect(m *machine.Machine) {
+	s := m.Screen()
+	if !s.TextMode() {
+		return
+	}
+	h.sel = newSelection(s)
+	if !h.rend.setSelection(h.sel) {
+		h.sel = nil
+	}
+}
+
+// selectKey gives a key press to the selection mode; a finished selection
+// goes to the clipboards, like copyScreen's text.
+func (h *termHost) selectKey(m *machine.Machine, k bios.KeyEvent) {
+	switch h.sel.key(k) {
+	case selCopy:
+		x0, y0, x1, y1 := h.sel.rect()
+		h.sel = nil
+		h.rend.setSelection(nil)
+		text := m.Screen().Selection(x0, y0, x1, y1)
+		h.clip.SetText(text)
+		h.rend.copyToTerminal(text)
+	case selCancel:
+		h.sel = nil
+		h.rend.setSelection(nil)
+	default:
+		h.rend.setSelection(h.sel)
+	}
 }
 
 // pasteClipboard types our clipboard into the program.
@@ -167,6 +211,7 @@ type renderer struct {
 	mu   sync.Mutex
 	w    *bufio.Writer
 	prev *bios.Screen
+	sel  *selection // selection overlay (a copy), nil: none
 }
 
 func newRenderer(w io.Writer) *renderer { return &renderer{w: bufio.NewWriterSize(w, 64<<10)} }
@@ -181,6 +226,7 @@ func (r *renderer) display(grid bool) {
 		r.prev = nil
 	} else {
 		r.w.WriteString("\x1b[0m\x1b[?25h\x1b[?1049l")
+		r.prev, r.sel = nil, nil
 	}
 	r.w.Flush()
 }
@@ -212,6 +258,36 @@ func (r *renderer) stream(b []byte, page *cp.Codepage) {
 func (r *renderer) draw(s *bios.Screen) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.drawLocked(s, false)
+}
+
+// setSelection shows the selection overlay (sl is copied), or removes it with
+// nil, and repaints the last frame. It reports false, doing nothing, if no
+// grid frame is on the terminal (the console mode).
+func (r *renderer) setSelection(sl *selection) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.prev == nil {
+		return false
+	}
+	r.sel = nil
+	if sl != nil {
+		c := *sl
+		r.sel = &c
+	}
+	r.drawLocked(r.prev, true)
+	return true
+}
+
+// overlayOn reports whether the selection overlay is shown.
+func (r *renderer) overlayOn() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sel != nil
+}
+
+// drawLocked paints s; with force every cell, not only the changed ones.
+func (r *renderer) drawLocked(s *bios.Screen, force bool) {
 	if !s.TextMode() {
 		return
 	}
@@ -225,21 +301,22 @@ func (r *renderer) draw(s *bios.Screen) {
 		for x := 0; x < s.Cols; x++ {
 			i := y*s.Cols + x
 			c := s.Cells[i]
-			if !full && r.prev.Cells[i] == c {
+			if !full && !force && r.prev.Cells[i] == c {
 				continue
 			}
 			if cx != x || cy != y {
 				r.w.WriteString("\x1b[" + strconv.Itoa(y+1) + ";" + strconv.Itoa(x+1) + "H")
 			}
-			if int(c.Attr) != lastAttr {
-				r.w.WriteString(machine.SGR(c.Attr))
-				lastAttr = int(c.Attr)
+			attr := r.sel.attrAt(x, y, c.Attr)
+			if int(attr) != lastAttr {
+				r.w.WriteString(machine.SGR(attr))
+				lastAttr = int(attr)
 			}
 			r.w.WriteRune(c.Rune)
 			cx, cy = x+1, y
 		}
 	}
-	if s.CursorVisible {
+	if s.CursorVisible && r.sel == nil {
 		r.w.WriteString("\x1b[" + strconv.Itoa(s.CursorY+1) + ";" + strconv.Itoa(s.CursorX+1) + "H\x1b[?25h")
 	} else {
 		r.w.WriteString("\x1b[?25l")
@@ -257,8 +334,9 @@ const (
 	cmdNone termCmd = iota
 	cmdQuit
 	cmdDump
-	cmdCopy  // Ctrl-] c: the screen text to the clipboard
-	cmdPaste // Ctrl-] v: the clipboard as keystrokes
+	cmdCopy   // Ctrl-] c: the screen text to the clipboard
+	cmdPaste  // Ctrl-] v: the clipboard as keystrokes
+	cmdSelect // Ctrl-] s: choose a screen area with the cursor keys and copy it
 )
 
 // inputParser turns terminal input bytes into keystrokes.
@@ -349,6 +427,8 @@ func (p *inputParser) run(r io.Reader) {
 					p.cmd(cmdCopy)
 				case 'v', 'V':
 					p.cmd(cmdPaste)
+				case 's', 'S':
+					p.cmd(cmdSelect)
 				case hotkey:
 					p.push(keys.Ctrl(']'))
 				}
