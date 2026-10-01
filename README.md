@@ -52,6 +52,7 @@ Norton Commander в тестах не используется; как пров�
 
 - [AGENTS.md](AGENTS.md) — как продолжать работу (для LLM-агентов)
 - [DESIGN.md](docs/DESIGN.md) — дизайн и план
+- [TASKS.md](docs/TASKS.md) — очередь задач с уровнями сложности
 - [DOUBTS.md](docs/DOUBTS.md) — сомнения и расследования
 - [UTF8NAMES.md](docs/UTF8NAMES.md) — API UTF-8 имён файлов для DOS (черновик)
 - [SCREEN.md](docs/SCREEN.md) — окно любого размера, консоль хоста, длинные строки

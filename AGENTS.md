@@ -2,7 +2,7 @@
 
 Прочитай этот файл целиком, потом — `README.md`, `docs/DESIGN.md` (статус в
 §13), `docs/DOUBTS.md` (открытые расследования), `docs/UTF8NAMES.md`,
-`docs/SCREEN.md`, `docs/WASI-BRIDGE.md`, `docs/TRANSLATION.md`, `docs/DN-PLAN.md`,
+`docs/TASKS.md`, `docs/SCREEN.md`, `docs/WASI-BRIDGE.md`, `docs/TRANSLATION.md`, `docs/DN-PLAN.md`,
 `docs/NC-TESTING.md`.
 
 ## Правила работы с владельцем
@@ -86,6 +86,9 @@ ndisasm -b16 -o0xOFF -e$((0xSEG*16+0xOFF)) /tmp/go2dos-dump-*/memory.bin | head
 адреса исполнения), `memory.bin`, `screen.txt`, `trace.jsonl`, `keys.txt`.
 
 ## Состояние и следующие шаги (по приоритету)
+
+Рабочая очередь с уровнями сложности и стоп-условиями — `docs/TASKS.md`.
+Младшая модель берёт только задачи уровня H. Список ниже — общий порядок.
 
 1. **VC 4.99.09** — открытое расследование, факты в `docs/DOUBTS.md`.
    Следующий шаг сбора информации: найти адрес переменной `StartMain`
