@@ -47,6 +47,11 @@ type Env struct {
 
 	Trace *Tracer
 
+	// Event, if set, is told about notable DOS events ("exec-start",
+	// "exec-return"); the machine uses it to arm the post-event execution
+	// log (diagnostics).
+	Event func(kind string)
+
 	handlers []entry
 	romNext  uint16
 	cur      *Record

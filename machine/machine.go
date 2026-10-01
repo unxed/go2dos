@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,6 +50,11 @@ type Config struct {
 	// Watch lists linear addresses whose writes are logged to the trace
 	// together with the writing instruction (diagnostics).
 	Watch []uint32
+	// ExecTrace, if > 0, logs the next ExecTrace executed instructions
+	// (address, bytes, registers) to the trace after every EXEC start and
+	// return (diagnostics; call name "exec"). It is single-stepped, so it
+	// is slow, and is also set by the GO2DOS_EXEC_TRACE environment variable.
+	ExecTrace int
 }
 
 // Machine is an emulated PC running a DOS program.
@@ -69,6 +77,7 @@ type Machine struct {
 	recorded []recordedKey
 	start    time.Time
 
+	execLeft   int // instructions still to log (Config.ExecTrace)
 	nextTick   time.Time
 	screen     atomic.Pointer[bios.Screen]
 	lastVer    uint32
@@ -110,6 +119,16 @@ func New(cfg Config) (*Machine, error) {
 	if err != nil {
 		return nil, err
 	}
+	if v, err := strconv.Atoi(os.Getenv("GO2DOS_EXEC_TRACE")); err == nil && cfg.ExecTrace == 0 {
+		cfg.ExecTrace = v
+	}
+	if spec := os.Getenv("GO2DOS_WATCH"); spec != "" {
+		ws, err := ParseWatch(spec)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Watch = append(cfg.Watch, ws...)
+	}
 	m := &Machine{cfg: cfg, CP: page, CodepageInfo: det, keys: make(chan bios.KeyEvent, 256),
 		unknownIO: map[uint16]bool{}, start: time.Now()}
 	m.Mem = mem.New()
@@ -127,6 +146,12 @@ func New(cfg Config) (*Machine, error) {
 	tr := hle.NewTracer(256, cfg.TraceLog, cfg.TraceFilter)
 	m.Env = hle.New(m.CPU, m.Mem, page, cfg.Now, tr)
 	m.Env.Idle = m.idle
+	if cfg.ExecTrace > 0 {
+		m.Env.Event = func(string) {
+			m.execLeft = cfg.ExecTrace
+			m.CPU.RequestStop() // leave the slice so single-stepping starts at once
+		}
+	}
 	m.BIOS = bios.New(m.Env)
 	m.BIOS.IdlePolls = cfg.IdlePolls
 	m.BIOS.IRQ1 = func() { m.pic.raise(1); m.CPU.IntrPending = true }
@@ -197,7 +222,15 @@ func (m *Machine) Run(ctx context.Context) error {
 		}
 		m.pollHost()
 		m.idleWanted = false
-		reason := m.CPU.Run(slice)
+		budget := slice
+		if m.execLeft > 0 {
+			budget = 1
+		}
+		before := m.CPU.Executed
+		reason := m.CPU.Run(budget)
+		if m.execLeft > 0 && m.CPU.Executed != before {
+			m.logExec()
+		}
 		if stop := m.Env.Stop; stop != nil {
 			m.Env.Stop = nil
 			m.publishScreen(true)
@@ -445,3 +478,54 @@ func (p *pit) write(ch int, v byte) {
 
 // CPUHistoryPos returns the index of the next history slot.
 func (m *Machine) CPUHistoryPos() int { return m.CPU.HistoryPos() }
+
+// logExec writes the instruction just executed to the trace (Config.ExecTrace).
+func (m *Machine) logExec() {
+	m.execLeft--
+	c := m.CPU
+	at := c.History[(c.HistoryPos()+cpu.HistoryLen-1)%cpu.HistoryLen]
+	cs, ip := uint16(at>>16), uint16(at)
+	m.Env.Trace.Stream("exec", fmt.Sprintf("%04X:%04X [% X] AX=%04X BX=%04X CX=%04X DX=%04X SI=%04X DI=%04X BP=%04X DS=%04X ES=%04X SS:SP=%04X:%04X",
+		cs, ip, m.Mem.Bytes(mem.Lin(cs, ip), 6), c.R[cpu.AX], c.R[cpu.BX], c.R[cpu.CX], c.R[cpu.DX],
+		c.R[cpu.SI], c.R[cpu.DI], c.R[cpu.BP], c.S[cpu.DS].Sel, c.S[cpu.ES].Sel, c.S[cpu.SS].Sel, c.R[cpu.SP]))
+}
+
+// ParseWatch parses a comma-separated list of watch addresses: a linear hex
+// address (22CD) or SEG:OFF (1234:0010), each optionally followed by /N
+// (the number of bytes, hex; default 1).
+func ParseWatch(spec string) ([]uint32, error) {
+	var out []uint32
+	for _, w := range strings.Split(spec, ",") {
+		w = strings.TrimSpace(strings.ToLower(w))
+		if w == "" {
+			continue
+		}
+		n := uint64(1)
+		if i := strings.IndexByte(w, '/'); i >= 0 {
+			v, err := strconv.ParseUint(w[i+1:], 16, 16)
+			if err != nil || v == 0 {
+				return nil, fmt.Errorf("bad watch length in %q", w)
+			}
+			n, w = v, w[:i]
+		}
+		var a uint32
+		if i := strings.IndexByte(w, ':'); i >= 0 {
+			seg, err1 := strconv.ParseUint(strings.TrimPrefix(w[:i], "0x"), 16, 16)
+			off, err2 := strconv.ParseUint(strings.TrimPrefix(w[i+1:], "0x"), 16, 16)
+			if err1 != nil || err2 != nil {
+				return nil, fmt.Errorf("bad watch address %q", w)
+			}
+			a = mem.Lin(uint16(seg), uint16(off))
+		} else {
+			v, err := strconv.ParseUint(strings.TrimPrefix(w, "0x"), 16, 32)
+			if err != nil {
+				return nil, fmt.Errorf("bad watch address %q", w)
+			}
+			a = uint32(v)
+		}
+		for i := uint64(0); i < n; i++ {
+			out = append(out, a+uint32(i))
+		}
+	}
+	return out, nil
+}

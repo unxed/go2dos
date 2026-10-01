@@ -60,3 +60,22 @@ func TestFiles(t *testing.T) {
 		t.Errorf("screen line 0 = %q", got)
 	}
 }
+
+func TestParseWatch(t *testing.T) {
+	got, err := ParseWatch("22CD, 1234:0010/2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []uint32{0x22CD, 0x12350, 0x12351}
+	if len(got) != len(want) {
+		t.Fatalf("got %X, want %X", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %X, want %X", got, want)
+		}
+	}
+	if _, err := ParseWatch("zz"); err == nil {
+		t.Error("bad address accepted")
+	}
+}

@@ -2,6 +2,7 @@ package dos
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	"github.com/unxed/go2dos/cpu"
 	"github.com/unxed/go2dos/hle"
@@ -213,6 +214,14 @@ func (d *DOS) exec(e *hle.Env) error {
 	c.SetSeg(cpu.ES, psp)
 	c.R[cpu.AX] = d.fcbDriveStatus(psp)
 	c.SetFlags(c.Flags | cpu.FlagIF)
+	// Diagnostics: everything the child is given, and where it starts.
+	e.Note("%s env=%04X tail=%04X:%04X [% X] fcb1=%04X:%04X fcb2=%04X:%04X psp=%04X size=%04X parent=%04X ret=%04X:%04X start=%04X:%04X ss:sp=%04X:%04X",
+		im.path, envSeg, tailPtr>>16, tailPtr&0xFFFF, m.Bytes(tail, int(n)+2),
+		fcb1>>16, fcb1&0xFFFF, fcb2>>16, fcb2&0xFFFF, psp, size, parent, retCS, retIP,
+		c.S[cpu.CS].Sel, c.IP, c.S[cpu.SS].Sel, c.R[cpu.SP])
+	if e.Event != nil {
+		e.Event("exec-start")
+	}
 	return nil
 }
 
@@ -266,6 +275,11 @@ func (d *DOS) endChild(code byte, keep bool) bool {
 	c.SetSeg(cpu.CS, retCS)
 	c.IP = retIP
 	c.SetFlags(flags &^ cpu.FlagCF)
+	d.e.Trace.Stream("exec", fmt.Sprintf("return: child psp=%04X ended (keep=%v), parent psp=%04X resumes at %04X:%04X ss:sp=%04X:%04X",
+		child, keep, f.psp, retCS, retIP, f.ss, c.R[cpu.SP]))
+	if d.e.Event != nil {
+		d.e.Event("exec-return")
+	}
 	return true
 }
 
