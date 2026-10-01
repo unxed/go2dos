@@ -1,4 +1,4 @@
-// Package dos implements a high-level-emulated DOS kernel (INT 20h/21h/2Fh
+// Package dos implements a high-level-emulated DOS kernel (INT 20h/21h/2Dh/2Fh
 // and friends) on top of host directories.
 package dos
 
@@ -59,6 +59,21 @@ type Config struct {
 	Pipe bool
 }
 
+// amisProvider describes an AMIS (Alternate Multiplex Interrupt Specification)
+// provider: a named extension accessible through INT 2Dh.
+type amisProvider struct {
+	// multiplex is the AH value used to reach this provider.
+	multiplex byte
+	// mfr is the 8-byte manufacturer name (space-padded).
+	mfr [8]byte
+	// product is the 8-byte product name (space-padded).
+	product [8]byte
+	// desc is an optional ASCIZ description in DOS memory.
+	desc string
+	// sigAddr is the linear address in DOS memory where the 16-byte signature is stored.
+	sigAddr uint32
+}
+
 // DOS is the kernel state.
 type DOS struct {
 	e              *hle.Env
@@ -104,13 +119,10 @@ type DOS struct {
 	finds     map[uint16]*lfnFind // open long-name searches (71xx filefind handles)
 	nextFind  uint16
 
-	// WinOldAp clipboard (INT 2Fh/17xx)
-	clipboardOpen   bool
-	clipboardFormat uint16 // CF_TEXT (1) or CF_OEMTEXT (7)
-	clipboardData   []byte
-
-	// WASI bridge (INT 2Dh)
-	wasi interface{} // *wasidos.WasiOS (lazy import to avoid cycles)
+	// AMIS providers indexed by multiplex number.
+	amisProviders [256]*amisProvider
+	// nextAMIS is the next free multiplex number to assign.
+	nextAMIS byte
 }
 
 // New installs the kernel.
@@ -192,8 +204,16 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 	e.HookInt(0x27, "int27", d.int27)
 	e.HookInt(0x28, "int28", func(e *hle.Env) error { e.Idle(); return nil })
 	e.HookInt(0x29, "int29", func(e *hle.Env) error { d.conWrite([]byte{e.CPU.AL()}); return nil })
-	e.HookInt(0x2F, "int2F", d.int2F)
 	e.HookInt(0x2D, "int2D", d.int2D)
+	e.HookInt(0x2F, "int2F", d.int2F)
+
+	// Register AMIS providers
+	var utf8mfr [8]byte
+	var utf8prod [8]byte
+	copy(utf8mfr[:], []byte("DOS-UTF8"))
+	copy(utf8prod[:], []byte("NAMES   "))
+	d.registerAMISProvider(utf8mfr, utf8prod, "UTF-8 file name support v1.0")
+
 	// Lenient mode: an unsupported INT 21h call fails with "invalid function".
 	e.Fallback("int21", func(e *hle.Env) error { d.fail(e, errInvalidFunc); return nil })
 	iret := e.Emit([]byte{0xCF})
@@ -644,3 +664,91 @@ func (d *DOS) setDTA(seg, off uint16) {
 
 // PSP returns the segment of the current process's PSP.
 func (d *DOS) PSP() uint16 { return d.psp }
+
+// registerAMISProvider registers an AMIS provider and returns its multiplex number
+// (AH value). The signature is stored in DOS memory and DX:DI will point to it.
+func (d *DOS) registerAMISProvider(mfr, product [8]byte, desc string) byte {
+	if d.nextAMIS == 0xFF {
+		return 0xFF // no more slots
+	}
+	multiplex := d.nextAMIS
+	d.nextAMIS++
+
+	// Allocate ROM space for the signature (16 bytes + description).
+	// The signature layout: [8 mfr][8 product][desc ASCIZ]
+	sigData := make([]byte, 16+len(desc)+1)
+	copy(sigData[0:], mfr[:])
+	copy(sigData[8:], product[:])
+	copy(sigData[16:], desc)
+	sigData[16+len(desc)] = 0 // ASCIZ terminator
+
+	sigAddr := d.e.Emit(sigData)
+	provider := &amisProvider{
+		multiplex: multiplex,
+		mfr:       mfr,
+		product:   product,
+		desc:      desc,
+		sigAddr:   mem.Lin(hle.ROMSeg, sigAddr),
+	}
+	d.amisProviders[multiplex] = provider
+	return multiplex
+}
+
+// int2D is the AMIS (Alternate Multiplex Interrupt Specification) dispatcher.
+// It multiplexes calls to registered providers based on AH value.
+// Unknown providers return no change (installation check failure).
+func (d *DOS) int2D(e *hle.Env) error {
+	c := e.CPU
+	ah := c.R[cpu.AX] >> 8
+	al := c.AL()
+	provider := d.amisProviders[ah]
+
+	switch al {
+	case 0x00: // Installation check
+		if provider == nil {
+			// Free slot: leave AL=00 and other registers unchanged
+			return nil
+		}
+		// Occupied: AL=FFh, CX=version, DX:DI=signature address
+		c.SetAL(0xFF)
+		c.R[cpu.CX] = 0x0100 // version 1.0: CH=1 (major), CL=0 (minor)
+		// Set DX:DI to point to the signature (which is in ROM)
+		c.R[cpu.DX] = hle.ROMSeg
+		c.R[cpu.DI] = uint16(provider.sigAddr & 0xFFFF)
+		e.Note("AMIS %02Xh: found %s/%s", ah, strings.TrimRight(string(provider.mfr[:]), " "), strings.TrimRight(string(provider.product[:]), " "))
+		return nil
+
+	case 0x01: // Direct entry (optional)
+		// We require using INT 2Dh for all calls, so return AL=00h (not supported).
+		c.SetAL(0x00)
+		return nil
+
+	case 0x02: // Uninstall request
+		if provider == nil {
+			return nil // Not our problem
+		}
+		// Our providers are built-in and not removable.
+		// Return AL=03h (Cannot uninstall - system driver).
+		c.SetAL(0x03)
+		return nil
+
+	case 0x04: // List of intercepted interrupts
+		if provider == nil {
+			return nil
+		}
+		// Return a list of 3-byte records: interrupt number + 2-byte offset (0x0000 for us).
+		// Last entry is 0x2Dh.
+		// Our providers only "intercept" INT 2Dh itself.
+		// Format: [byte interrupt][word handler_offset] per entry, ended with 0x2Dh.
+		// Since we don't have per-interrupt handling, we just report 2Dh.
+		list := []byte{0x2D, 0x00, 0x00}
+		addr := e.DSDX()
+		e.Mem.SetBytes(addr, list)
+		c.R[cpu.DX], c.R[cpu.BX] = c.Seg(cpu.DS), c.R[cpu.DX]
+		c.SetAL(0x04)
+		return nil
+	}
+
+	// Unknown function: leave registers unchanged
+	return nil
+}
