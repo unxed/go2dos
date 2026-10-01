@@ -44,6 +44,18 @@ type BIOS struct {
 	// IRQ1 is called when a scan code is ready in port 60h.
 	IRQ1 func()
 
+	// Modifier flags (BDA 0040:0017 bits 0-3) of the keys in the type-ahead
+	// buffer, oldest first. The INT 09h stub clears the flags at the break code
+	// of a key, long before a program reads it. A program that reads a key and
+	// then asks INT 16h AH=02h/12h must still see the flags the key was pressed
+	// with, as with a key that is held down: Shift-Ins is the word of Ins to
+	// AH=00h, and the flags are all that tells them apart. So INT 16h AH=00h/10h
+	// puts the flags of the key it returns back into the BDA (held), until the
+	// next INT 16h read or poll.
+	modQ     []byte
+	lastMods byte // flags of the key that bufGet returned last
+	held     byte // flag bits that the last INT 16h read put in the BDA
+
 	emptyPolls int
 	// IdlePolls is the number of consecutive empty INT 16h polls after which
 	// the guest is considered idle.
@@ -181,7 +193,7 @@ func (b *BIOS) int09(e *hle.Env) error {
 			m.W8(bdaBreak, m.R8(bdaBreak)|0x80)
 			e.CPU.Interrupt(0x1B)
 		} else if k.Scan != 0 || k.ASCII != 0 {
-			if !b.bufPut(k.Word()) {
+			if !b.bufPutMods(k.Word(), k.Mods&0x0F) {
 				e.Note("keyboard buffer full")
 			}
 		}
@@ -197,9 +209,15 @@ func (b *BIOS) int09(e *hle.Env) error {
 	return nil
 }
 
-func (b *BIOS) bufPut(w uint16) bool {
+func (b *BIOS) bufPut(w uint16) bool { return b.bufPutMods(w, 0) }
+
+// bufPutMods puts a key word into the buffer together with its modifier flags.
+func (b *BIOS) bufPutMods(w uint16, mods byte) bool {
 	m := b.e.Mem
 	head, tail := m.R16(bdaKbdHead), m.R16(bdaKbdTail)
+	if head == tail {
+		b.modQ = b.modQ[:0] // empty buffer: nothing waits for its flags
+	}
 	start, end := m.R16(bdaKbdStart), m.R16(bdaKbdEnd)
 	next := tail + 2
 	if next >= end {
@@ -210,6 +228,7 @@ func (b *BIOS) bufPut(w uint16) bool {
 	}
 	m.W16(0x400+uint32(tail), w)
 	m.W16(bdaKbdTail, next)
+	b.modQ = append(b.modQ, mods)
 	return true
 }
 
@@ -252,7 +271,30 @@ func (b *BIOS) bufGet() uint16 {
 		head = m.R16(bdaKbdStart)
 	}
 	m.W16(bdaKbdHead, head)
+	b.lastMods = 0
+	if len(b.modQ) > 0 {
+		b.lastMods, b.modQ = b.modQ[0], b.modQ[1:]
+	}
 	return w
+}
+
+// dropHeld takes back the flags that the last INT 16h read put in the BDA
+// (a key being pressed keeps its own flags until its break code).
+func (b *BIOS) dropHeld() {
+	if b.held != 0 && b.inFlight == nil {
+		m := b.e.Mem
+		m.W8(bdaKbdFlags, m.R8(bdaKbdFlags)&^b.held)
+	}
+	b.held = 0
+}
+
+// hold shows the flags of the key that INT 16h just returned in the BDA.
+func (b *BIOS) hold(mods byte) {
+	if mods != 0 {
+		m := b.e.Mem
+		m.W8(bdaKbdFlags, m.R8(bdaKbdFlags)|mods)
+		b.held = mods
+	}
 }
 
 // PeekKey returns the first key of the BIOS buffer without removing it.
@@ -287,6 +329,9 @@ func (b *BIOS) poll(e *hle.Env) {
 
 func (b *BIOS) int16(e *hle.Env) error {
 	c := e.CPU
+	if ah := c.AH(); ah == 0x00 || ah == 0x01 || ah == 0x10 || ah == 0x11 {
+		b.dropHeld()
+	}
 	switch ah := c.AH(); ah {
 	case 0x00, 0x10:
 		if _, ok := b.bufPeek(); !ok {
@@ -295,6 +340,7 @@ func (b *BIOS) int16(e *hle.Env) error {
 		}
 		b.emptyPolls = 0
 		w := b.bufGet()
+		b.hold(b.lastMods)
 		if ah == 0x00 {
 			w = compat(w)
 		}
