@@ -157,3 +157,32 @@ func (ts *TextSelection) PasteFromSelection(d *DOS, screen *bios.Screen, format 
 
 	return len(data), nil
 }
+
+// HostClipboard is the interface for the host's clipboard (for copy/paste operations).
+type HostClipboard interface {
+	GetText() (string, error)
+	SetText(string) error
+}
+
+// CopyToClipboard copies the selected text from the screen to the host clipboard.
+// Returns the number of characters copied, or an error if the operation fails.
+func (ts *TextSelection) CopyToClipboard(screen *bios.Screen, hclip HostClipboard) (int, error) {
+	if hclip == nil {
+		return 0, errors.New("host clipboard is nil")
+	}
+
+	text := ts.GetSelectedText(screen)
+	if text == "" {
+		// Empty selection - set empty text
+		if err := hclip.SetText(""); err != nil {
+			return 0, err
+		}
+		return 0, nil
+	}
+
+	if err := hclip.SetText(text); err != nil {
+		return 0, err
+	}
+
+	return len([]rune(text)), nil
+}
