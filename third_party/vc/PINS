@@ -16,3 +16,8 @@ REF_405_VC_COM=b408f14da5bcba174f5e86107437b22b2863ee6ec72f79bdadf1b812607405fb
 REF_405_VCSETUP_COM=64f629207d16c4025c1e824fe11445dec8d9ea584d55c55b374a977ff5bbf703
 REF_499_VC_COM=85fcbb964af1aa120f4ad0c93922592e6c8345192c0ff809dc4b69e2934d7661
 REF_499_VC_OVL=a25e43f8b861edcf411797f407ffb7016702c2c7f070584970756a916ef62fd9
+
+# pts-vc405-port (BSD-2-Clause): VC 4.05 на NASM/JWasm, побайтная сборка.
+# sha256 его golden/vc.com совпадает с REF_405_VC_COM (проверено при пине).
+PTS_REPO=https://github.com/pts/pts-vc405-port
+PTS_COMMIT=9e8b70ed971024e54bfcfcde5be2e698bdaf469b

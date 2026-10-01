@@ -12,6 +12,10 @@
 совпадает с TASM побайтно, `VC.OVL` — нет; для 4.05 нужны патчи, и сборка
 не побайтная. Поэтому для 4.05 база — pts-vc405-port (ниже).
 
+**T15a:** `tools/build-vc405-pts.sh` собирает 4.05 `VC.COM` из pts-vc405-port (пин —
+`PTS_COMMIT` в `third_party/vc/PINS`) и сверяет с эталоном TASM; `build-vc.sh` и CI
+требуют совпадения. Это G1 для 4.05. Скрипт ещё не прогонялся (см. `DOUBTS.md`).
+
 ## База для VC 4.05
 
 `github.com/pts/pts-vc405-port` (BSD-2, как сам VC). В нём исходник VC 4.05

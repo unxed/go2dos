@@ -115,8 +115,8 @@ jobs:
         run: sh tools/fetch-vc.sh .cache/vc
       - name: Сборка VC 4.05 и 4.99.09 (JWasm)
         run: sh tools/build-vc.sh -c .cache/vc .cache/vc-build
-      - name: Различия с TASM по дизассемблированию (VC.COM 4.05)
-        run: python3 tools/vc-diff.py .cache/vc-build/bin/4.05/VC.COM .cache/vc/4.05/VC.COM
+      - name: VC.COM 4.05 побайтно как у TASM (гейт G1)
+        run: cmp .cache/vc-build/bin/4.05/VC.COM .cache/vc/4.05/VC.COM
       - name: e2e на собранном VC 4.05
         run: go test -v -run TestVC405 ./e2e/
         env:

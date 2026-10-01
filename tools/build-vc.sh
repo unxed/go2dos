@@ -92,7 +92,7 @@ echo "== VC 4.05"
 fresh "$out/work/4.05"
 cp "$src"/versions/4.05/* "$out/work/4.05/"
 (cd "$out/work/4.05" && git apply -p1 "$tp/patches/vc-4.05-jwasm.patch")
-asm 4.05 VC.ASM      VC.COM      -Zne -Zg -bin
+sh "$here/build-vc405-pts.sh" "$out"   # VC.COM побайтно как у TASM (T15a)
 asm 4.05 VCSETUP.ASM VCSETUP.COM -Zne -Zg -bin
 
 echo "== VC 4.99.09"
@@ -125,12 +125,12 @@ cmpone() { # cmpone ВЕРСИЯ ФАЙЛ ЭТАЛОННЫЙ_SHA СТРОГО(1|
   printf '%-16s sha256 %s\n' "" "$got"
   if [ "$4" = 1 ]; then bad=1; fi
 }
-cmpone 4.05    VC.COM      "$REF_405_VC_COM"      0
+cmpone 4.05    VC.COM      "$REF_405_VC_COM"      1
 cmpone 4.05    VCSETUP.COM "$REF_405_VCSETUP_COM" 0
 cmpone 4.99.09 VC.COM      "$REF_499_VC_COM"      1
 cmpone 4.99.09 VC.OVL      "$REF_499_VC_OVL"      0
 echo
 if [ "$bad" = 1 ]; then
-  die "4.99.09/VC.COM должен совпадать с TASM побайтно (README, раздел «Что установлено»)"
+  die "VC.COM 4.05 и 4.99.09 должны совпадать с TASM побайтно (README, раздел «Что установлено»)"
 fi
 echo "готово: $out/bin"
