@@ -39,6 +39,7 @@ const (
 // Config configures the kernel.
 type Config struct {
 	Drives   map[byte]string // drive letter (A-Z) -> host directory
+	TrashDir string          // move deleted files here instead of removing them (fstrash.go)
 	Confine  bool            // hide symbolic links that lead out of the drive (fsro.go)
 	ReadOnly map[byte]bool   // drives that DOS may not change (fsro.go)
 	Current  byte            // current drive letter
@@ -150,6 +151,7 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 	}
 	d.fs = fs
 	fs.confine = cfg.Confine
+	fs.trash = cfg.TrashDir
 	for l := range cfg.NotReady {
 		if l >= 'A' && l <= 'Z' && cfg.NotReady[l] {
 			d.faults[l-'A'].notReady, d.anyFault = true, true

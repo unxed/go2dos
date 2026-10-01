@@ -580,7 +580,7 @@ func (d *DOS) lfnDelete(e *hle.Env) uint16 {
 			return errAccess
 		}
 		d.fs.invalidate()
-		return osErr(os.Remove(r.host))
+		return osErr(d.fs.remove(r.host))
 	}
 	dirPart, pat := splitLFN(p)
 	r, errc := d.fs.existing(dirPart)
@@ -604,7 +604,7 @@ func (d *DOS) lfnDelete(e *hle.Env) uint16 {
 			return errAccess
 		}
 		d.fs.invalidate()
-		if err := os.Remove(filepath.Join(r.host, m.long)); err != nil {
+		if err := d.fs.remove(filepath.Join(r.host, m.long)); err != nil {
 			return errAccess
 		}
 		n++

@@ -493,7 +493,7 @@ func (d *DOS) unlink(path []byte) uint16 {
 		return errAccess
 	}
 	d.fs.invalidate()
-	return osErr(os.Remove(host))
+	return osErr(d.fs.remove(host))
 }
 
 func (d *DOS) rename(from, to []byte) uint16 {

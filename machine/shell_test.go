@@ -331,3 +331,18 @@ func TestShellModeAsksTerminalResize(t *testing.T) {
 		t.Errorf("resize requests in console stream mode: %v", got)
 	}
 }
+
+// DEL of the built-in shell goes to the trash (-trash) too, also by a long name.
+func TestShellDelToTrash(t *testing.T) {
+	trash := filepath.Join(t.TempDir(), "bin")
+	_, text, dir := runShellCfg(t, Config{TrashDir: trash}, ` /C DEL "Long Doc.txt"`, map[string]string{"Long Doc.txt": "doc"})
+	if l := lineList(text); l[0] != "EXIT AX=0000" {
+		t.Fatalf("screen:\n%s", text)
+	}
+	if b, err := os.ReadFile(filepath.Join(trash, "Long Doc.txt")); err != nil || string(b) != "doc" {
+		t.Errorf("trash: %q %v", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Long Doc.txt")); err == nil {
+		t.Error("the file is still in the drive")
+	}
+}

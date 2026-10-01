@@ -94,7 +94,9 @@ type fsys struct {
 	// ro marks the drives that DOS may not change (-ro, docs/DATA-SAFETY.md).
 	ro [26]bool
 	// confine hides symbolic links whose target is outside the drive root (-confine).
-	confine  bool
+	confine bool
+	// trash is the directory that deleted files are moved to ("" - delete for real).
+	trash    string
 	realRoot [26]string
 }
 

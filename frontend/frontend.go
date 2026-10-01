@@ -71,6 +71,7 @@ type ClipboardProvider interface {
 type Options struct {
 	Drives      map[byte]string
 	Confine     bool
+	Trash       string
 	ReadOnly    string // -ro: drives DOS may not change ("C", "CD", "all")
 	Codepage    int
 	Trace       string
@@ -117,6 +118,7 @@ func RegisterFlags(fs *flag.FlagSet, terminal bool) *Options {
 	o := &Options{Drives: map[byte]string{}}
 	fs.Var(driveFlags(o.Drives), "drive", "map a drive: LETTER=DIR (repeatable)")
 	fs.StringVar(&o.ReadOnly, "ro", "", "make drives read-only for DOS: letters (C or CD or C,D) or all; deleting, writing, renaming are refused")
+	fs.StringVar(&o.Trash, "trash", "", "move files that DOS deletes to `DIR` instead of removing them (a log of the moves is DIR/go2dos-trash.log)")
 	fs.BoolVar(&o.Confine, "confine", false, "hide symbolic links that lead out of a drive directory (nothing outside the mapped directories can be reached through links)")
 	fs.IntVar(&o.Codepage, "cp", 0, "DOS code page (0 = from the host locale)")
 	fs.StringVar(&o.Trace, "trace", "", "write every BIOS/DOS call as JSON lines to `FILE`")
@@ -188,6 +190,7 @@ func Run(o *Options, args []string, host Host) int {
 
 	cfg := machine.Config{Drives: drives, Codepage: o.Codepage, Lenient: o.Lenient, NoLFN: o.NoLFN, HostExec: o.HostExec, OpenCmd: o.OpenCmd, RealNames: o.RealNames, TraceLog: traceW, TraceFilter: filter}
 	cfg.Confine = o.Confine
+	cfg.TrashDir = o.Trash
 	if o.ReadOnly != "" {
 		ro, err := dos.ParseReadOnly(o.ReadOnly)
 		if err != nil {
