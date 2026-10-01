@@ -15,10 +15,11 @@ SRC = ROOT / "src"
 OUT = ROOT / "build"
 
 
-def module_text():
+def module_text(extra=""):
+    """Текст модуля; extra — дополнительные поля (только для тестов)."""
     files = [SRC / "rt.wat"] + sorted(p for p in SRC.glob("*.wat") if p.name != "rt.wat")
     parts = [f";; ===== {p.name}\n{p.read_text(encoding='utf-8')}" for p in files]
-    return "(module\n" + "\n".join(parts) + "\n)\n"
+    return "(module\n" + "\n".join(parts) + "\n" + extra + "\n)\n"
 
 
 def build():

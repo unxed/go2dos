@@ -4,9 +4,24 @@
 ;; в один модуль tools/build.py. Здесь — память, регистры, доступ к памяти,
 ;; стек, флаги и строковые команды; переведённый код пользуется только ими.
 
+;; --- интерфейс с хостом (PLAN §0, R8): хост — это DOS и BIOS.
+;; Единственный импорт: программное прерывание n. Перед вызовом $int кладёт в
+;; стек кадр, как настоящая команда INT (FLAGS, CS, IP), и выкладывает регистры
+;; в регистровый блок; хост работает с блоком и памятью (флаги результата — в
+;; кадре, как в HLE go2dos); после вызова $int забирает регистры из блока и
+;; снимает кадр, как IRET. Импорты в WAT идут раньше остальных полей модуля,
+;; поэтому этот блок — первый в rt.wat.
+(import "vc" "int" (func $host_int (param i32)))
+
 ;; Адресное пространство реального режима (1 МиБ) — линейная память с адреса 0:
-;; линейный адрес = seg*16 + off по модулю 1 МиБ, как у 8086.
-(memory (export "memory") 16)
+;; линейный адрес = seg*16 + off по модулю 1 МиБ, как у 8086. За ним (17-я
+;; страница) — служебная область: регистровый блок по адресу 100000h.
+(memory (export "memory") 17)
+
+;; Регистровый блок: слова ax cx dx bx sp bp si di es cs ss ds flags по
+;; смещениям 0, 2, … 24 (порядок кодирования x86, как cpu.AX… в go2dos).
+;; Адрес отдаёт экспорт vc_regs — так хост не зависит от раскладки памяти.
+(func (export "vc_regs") (result i32) (i32.const 0x100000))
 
 ;; Регистры (значения всегда 0..FFFFh) и FLAGS — глобальные переменные.
 ;; Экспортируются для харнесса и тестов.
@@ -84,7 +99,59 @@
   (global.set $sp
     (i32.and (i32.add (global.get $sp) (i32.add (i32.const 2) (local.get $n))) (i32.const 0xFFFF))))
 
+;; IRET: снять IP (переход делает (return) после вызова), CS и FLAGS.
+;; Перевод IRET в обработчиках VC: (call $iret) (return).
+(func $iret
+  (drop (call $pop))
+  (global.set $cs (call $pop))
+  (global.set $flags (i32.or (i32.and (call $pop) (i32.const 0x0FD5)) (i32.const 0xF002))))
+
+;; --- регистровый блок
+(func $regs_store
+  (i32.store16 offset=0  (i32.const 0x100000) (global.get $ax))
+  (i32.store16 offset=2  (i32.const 0x100000) (global.get $cx))
+  (i32.store16 offset=4  (i32.const 0x100000) (global.get $dx))
+  (i32.store16 offset=6  (i32.const 0x100000) (global.get $bx))
+  (i32.store16 offset=8  (i32.const 0x100000) (global.get $sp))
+  (i32.store16 offset=10 (i32.const 0x100000) (global.get $bp))
+  (i32.store16 offset=12 (i32.const 0x100000) (global.get $si))
+  (i32.store16 offset=14 (i32.const 0x100000) (global.get $di))
+  (i32.store16 offset=16 (i32.const 0x100000) (global.get $es))
+  (i32.store16 offset=18 (i32.const 0x100000) (global.get $cs))
+  (i32.store16 offset=20 (i32.const 0x100000) (global.get $ss))
+  (i32.store16 offset=22 (i32.const 0x100000) (global.get $ds))
+  (i32.store16 offset=24 (i32.const 0x100000) (global.get $flags)))
+(func $regs_load
+  (global.set $ax (i32.load16_u offset=0  (i32.const 0x100000)))
+  (global.set $cx (i32.load16_u offset=2  (i32.const 0x100000)))
+  (global.set $dx (i32.load16_u offset=4  (i32.const 0x100000)))
+  (global.set $bx (i32.load16_u offset=6  (i32.const 0x100000)))
+  (global.set $sp (i32.load16_u offset=8  (i32.const 0x100000)))
+  (global.set $bp (i32.load16_u offset=10 (i32.const 0x100000)))
+  (global.set $si (i32.load16_u offset=12 (i32.const 0x100000)))
+  (global.set $di (i32.load16_u offset=14 (i32.const 0x100000)))
+  (global.set $es (i32.load16_u offset=16 (i32.const 0x100000)))
+  (global.set $cs (i32.load16_u offset=18 (i32.const 0x100000)))
+  (global.set $ss (i32.load16_u offset=20 (i32.const 0x100000)))
+  (global.set $ds (i32.load16_u offset=22 (i32.const 0x100000)))
+  (global.set $flags (i32.load16_u offset=24 (i32.const 0x100000))))
+
+;; INT n (перевод: (call $int (i32.const n) (i32.const 0xNEXT)), NEXT — адрес
+;; следующей команды из листинга, он ляжет в кадр как IP).
+(func $int (param $n i32) (param $next i32)
+  (call $push (call $flags_word))
+  (call $push (global.get $cs))
+  (call $push (local.get $next))
+  (call $regs_store)
+  (call $host_int (local.get $n))
+  (call $regs_load)
+  (call $iret))
+
 ;; --- флаги (маски: CF=1 PF=4 AF=10h ZF=40h SF=80h IF=200h DF=400h OF=800h)
+;; FLAGS, как его видит 8086 (PUSHF, кадр INT): биты 12-15 и бит 1 — единицы,
+;; как flagsFixed в cpu/state.go go2dos. Перевод PUSHF: (call $push (call $flags_word)).
+(func $flags_word (result i32)
+  (i32.or (i32.and (global.get $flags) (i32.const 0x0FD5)) (i32.const 0xF002)))
 (func $getf (param $m i32) (result i32)
   (i32.ne (i32.and (global.get $flags) (local.get $m)) (i32.const 0)))
 (func $setf (param $m i32) (param $on i32)

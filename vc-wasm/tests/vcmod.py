@@ -1,12 +1,13 @@
 """Общий для тестов доступ к модулю: сборка, регистры, память, вызов процедуры.
 
 Процедура вызывается так же, как в оракуле (oracle/main.go): адрес возврата
-RET_ADDR лежит в стеке по SS:SP, процедура входит по CALL.
+RET_ADDR лежит в стеке по SS:SP, процедура входит по CALL. Импорт vc.int
+обслуживает host_int (по умолчанию — ошибка: неожиданное прерывание).
 """
 import sys
 from pathlib import Path
 
-from wasmtime import Engine, Instance, Module, Store
+from wasmtime import Engine, Func, FuncType, Instance, Module, Store, ValType, wat2wasm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 import build  # noqa: E402
@@ -17,21 +18,28 @@ RET_ADDR = 0xFF00
 SP0 = 0xFFF0       # SP вызывающего; при входе SP = SP0 - 2
 
 _engine = Engine()
-_module = None
+_modules = {}
 
 
-def module():
-    global _module
-    if _module is None:
-        _module = Module(_engine, build.build())
-    return _module
+def module(extra=""):
+    if extra not in _modules:
+        wasm = build.build() if not extra else bytes(wat2wasm(build.module_text(extra)))
+        _modules[extra] = Module(_engine, wasm)
+    return _modules[extra]
 
 
 class VC:
-    def __init__(self):
+    def __init__(self, extra=""):
         self.store = Store(_engine)
-        self.ex = Instance(self.store, module(), []).exports(self.store)
+        self.host_int = None  # host_int(vc, n): обработчик импорта vc.int
+        imp = Func(self.store, FuncType([ValType.i32()], []), self._int)
+        self.ex = Instance(self.store, module(extra), [imp]).exports(self.store)
         self.mem = self.ex["memory"]
+
+    def _int(self, n):
+        if self.host_int is None:
+            raise AssertionError(f"неожиданное INT {n:02X}h")
+        self.host_int(self, n)
 
     def reg(self, name):
         return self.ex[name].value(self.store)
@@ -44,6 +52,12 @@ class VC:
 
     def read(self, lin, n):
         return bytes(self.mem.read(self.store, lin, lin + n))
+
+    def word(self, lin):
+        return int.from_bytes(self.read(lin, 2), "little")
+
+    def set_word(self, lin, v):
+        self.write(lin, v.to_bytes(2, "little"))
 
     def call(self, proc, **regs):
         """Вызывает процедуру; возвращает регистры после возврата."""
