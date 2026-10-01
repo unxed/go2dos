@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/unxed/go2dos/machine"
@@ -38,3 +39,22 @@ func vcCommandLine(t *testing.T, version string) {
 
 func TestVC405CommandLine(t *testing.T)   { vcCommandLine(t, "4.05") }
 func TestVC49909CommandLine(t *testing.T) { vcCommandLine(t, "4.99.09") }
+
+// "!" on the VC command line goes to the host shell (Config.HostExec); the
+// host does the redirection in the directory that is current in DOS.
+func vcHostExec(t *testing.T, version string) {
+	m, runErr, dir := sessionOpts(t, version,
+		`<waitfor:10Quit>!echo hostexec-ok>HOST.TXT<Enter><wait:3s><waitfor:10Quit><F10><waitfor:Do you want to quit><Enter>`,
+		nil, machine.Config{HostExec: true})
+	var ex *machine.ExitError
+	if !errors.As(runErr, &ex) || ex.Code != 0 {
+		t.Fatalf("want exit 0, got %v; screen:\n%s", runErr, m.Screen().Text())
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "HOST.TXT"))
+	if err != nil || strings.TrimSpace(string(b)) != "hostexec-ok" {
+		t.Fatalf("HOST.TXT = %q, %v", b, err)
+	}
+}
+
+func TestVC405HostExec(t *testing.T)   { vcHostExec(t, "4.05") }
+func TestVC49909HostExec(t *testing.T) { vcHostExec(t, "4.99.09") }

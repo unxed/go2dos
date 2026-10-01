@@ -469,8 +469,24 @@ func (d *DOS) shellRun(e *hle.Env, st *shellState, line string) bool {
 	if line == "" || line[0] == ':' {
 		return false
 	}
+	if strings.HasPrefix(line, "!") { // the host's command
+		if !d.hostExec {
+			d.shPrint("Host commands are disabled (go2dos -host-exec)" + crlf)
+			st.level = 255
+		} else {
+			d.hostRun(st, strings.TrimSpace(line[1:]))
+		}
+		return false
+	}
+	orig := line
 	line, redir, ok := splitRedir(line)
-	if !ok {
+	if !ok { // a pipe: only the host shell has them
+		if w := firstWord(orig); d.hostExec && !shellInternal[upperASCII(w)] && d.hostHas(w) {
+			if _, kind := d.findProgram(w); kind == "" {
+				d.hostRun(st, orig)
+				return false
+			}
+		}
 		d.shPrint("Pipes are not supported by the built-in COMMAND.COM" + crlf)
 		st.level = 255
 		return false
@@ -516,6 +532,10 @@ func (d *DOS) shellRun(e *hle.Env, st *shellState, line string) bool {
 	// Внешняя программа.
 	path, kind := d.findProgram(tok)
 	if kind == "" {
+		if d.hostExec && d.hostHas(tok) {
+			d.hostRun(st, orig)
+			return false
+		}
 		d.shPrint("Bad command or file name" + crlf)
 		st.level = 255
 		return false
@@ -605,6 +625,14 @@ func (d *DOS) findProgram(tok string) (path, kind string) {
 		}
 	}
 	return "", ""
+}
+
+// firstWord — первое слово строки (до пробела, '/', '|', '<', '>').
+func firstWord(line string) string {
+	if i := strings.IndexAny(line, " \t/|<>"); i >= 0 {
+		return line[:i]
+	}
+	return line
 }
 
 func splitDirLoose(p string) (string, string) {

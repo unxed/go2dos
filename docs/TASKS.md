@@ -50,7 +50,7 @@
 | T15a | H | Сборка VC в CI: сейчас JWasm (`VC-BUILD.md`, job `build-vc`) — для 4.99.09 `VC.COM` побайтно, для 4.05 не побайтно. Перевести 4.05 на pts-vc405-port (побайтно, гейт G1 из `ASM-GATES.md`) | CI сверяет эталон |
 | T15b | H | Мелкие функции в VC 4.05 по `ASM-GATES.md` (например, горячая клавиша буфера обмена через `INT 2Fh/17xx`) | все гейты зелёные |
 | T15c | H | Крупные функции VC: модуль расширений `VCEXT.BIN` для 4.05, настройки в `VCEXT.INI`, правки оверлея 4.99.09 — по разделам «Если не влезает» в `ASM-GATES.md` | гейты G1–G8 |
-| T18 | H | Команды хоста во встроенной оболочке (после влития `feat/builtin-shell`) — `HOSTEXEC.md` | e2e: `!echo hostexec-ok` в VC |
+| T18 | — | **Сделано** (ветка `feat/hostexec`, поверх `feat/builtin-shell`). Команды хоста во встроенной оболочке (после влития `feat/builtin-shell`) — `HOSTEXEC.md` | e2e: `!echo hostexec-ok` в VC |
 | T19 | H | Оверлей: передача терминала команде хоста в режиме `console` (после влития `feat/frontend-iface`) — `HOSTEXEC.md` | тест в pty |
 | T20 | H | AMIS-API `DOS-HOST/HOSTEXEC` (после T08) — `HOSTEXEC.md` | `.COM`-тест |
 | T17 | S | DN, HX, NC (DESIGN §20, `DN-PLAN.md`) | по их планам |

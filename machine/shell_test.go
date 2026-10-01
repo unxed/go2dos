@@ -14,6 +14,12 @@ import (
 // of the drive (name -> content).
 func runShell(t *testing.T, tail string, files map[string]string) (*Machine, string, string) {
 	t.Helper()
+	return runShellCfg(t, Config{}, tail, files)
+}
+
+// runShellCfg is runShell with extra machine settings (drives and code page are set here).
+func runShellCfg(t *testing.T, cfg Config, tail string, files map[string]string) (*Machine, string, string) {
+	t.Helper()
 	dir := t.TempDir()
 	for _, n := range []string{"runcmd.com", "hello.com", "mark.com"} {
 		src, err := os.ReadFile(filepath.Join("..", "testdata", "progs", n))
@@ -32,7 +38,8 @@ func runShell(t *testing.T, tail string, files map[string]string) (*Machine, str
 			t.Fatal(err)
 		}
 	}
-	m, err := New(Config{Drives: map[byte]string{'C': dir}, Codepage: 437})
+	cfg.Drives, cfg.Codepage = map[byte]string{'C': dir}, 437
+	m, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -41,6 +41,12 @@ func sessionFiles(t *testing.T, version, script string, extra map[string]string)
 // sessionDir is sessionFiles that also returns the host directory of drive C:.
 func sessionDir(t *testing.T, version, script string, extra map[string]string) (*machine.Machine, error, string) {
 	t.Helper()
+	return sessionOpts(t, version, script, extra, machine.Config{})
+}
+
+// sessionOpts is sessionDir with machine settings (drives and code page are set here).
+func sessionOpts(t *testing.T, version, script string, extra map[string]string, cfg machine.Config) (*machine.Machine, error, string) {
+	t.Helper()
 	src := vcDir(t, version)
 	dir := t.TempDir()
 	entries, err := os.ReadDir(src)
@@ -60,7 +66,8 @@ func sessionDir(t *testing.T, version, script string, extra map[string]string) (
 		os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644)
 	}
 
-	m, err := machine.New(machine.Config{Drives: map[byte]string{'C': dir}, Codepage: 437})
+	cfg.Drives, cfg.Codepage = map[byte]string{'C': dir}, 437
+	m, err := machine.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

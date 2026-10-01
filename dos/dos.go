@@ -54,6 +54,11 @@ type Config struct {
 	// (crit.go). Without such drives no critical error ever occurs.
 	NotReady     map[byte]bool
 	WriteProtect map[byte]bool
+	// HostExec lets the built-in COMMAND.COM run commands of the host: a
+	// line starting with "!", or a command that is no DOS program but is in
+	// the host PATH (hostexec.go). It leaves the sandbox, so it is off by
+	// default.
+	HostExec bool
 }
 
 // DOS is the kernel state.
@@ -84,7 +89,8 @@ type DOS struct {
 	lineDone  bool
 	conIn     []byte // cooked CON input not yet consumed by read
 
-	noLFN bool
+	noLFN    bool
+	hostExec bool
 
 	faults    [lastDrive]driveFault
 	anyFault  bool
@@ -103,7 +109,7 @@ type DOS struct {
 
 // New installs the kernel.
 func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
-	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN}
+	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN, hostExec: cfg.HostExec}
 	fs, err := newFS(e, cfg)
 	if err != nil {
 		return nil, err
