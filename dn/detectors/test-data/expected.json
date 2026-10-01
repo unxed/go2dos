@@ -1,0 +1,91 @@
+{
+  "description": "Expected results for control test data (D3 detector validation)",
+  "date": "2026-10-01",
+  "test_data": {
+    "positive": [
+      {
+        "name": "dn_copied_renamed",
+        "tv_original": "tv_original.pas",
+        "description": "Copy of TV code with identifier renaming and reformatting"
+      }
+    ],
+    "negative": [
+      {
+        "name": "independent_code",
+        "description": "Independent queue implementation - no copy"
+      }
+    ]
+  },
+  "expected_detector_results": {
+    "A_k_grams": {
+      "positive_must_detect": [
+        {
+          "file1": "TV:tv_original.pas",
+          "file2": "DN:dn_copied_renamed.pas",
+          "min_similarity": 0.75,
+          "reason": "K-gram detector replaces identifiers with stubs, so should find copied structure despite renaming"
+        }
+      ],
+      "negative_must_not_detect_above": [
+        {
+          "file1": "TV:tv_original.pas",
+          "file2": "independent_code.pas",
+          "max_similarity": 0.3,
+          "reason": "Independent queue code is structurally different from stream operations"
+        }
+      ],
+      "threshold": 10,
+      "k": 5
+    },
+    "B_line_by_line": {
+      "positive_may_not_detect": [
+        {
+          "file1": "TV:tv_original.pas",
+          "file2": "DN:dn_copied_renamed.pas",
+          "reason": "Line-by-line comparison is sensitive to reformatting (comments, line breaks)"
+        }
+      ],
+      "negative_must_not_detect_above": [
+        {
+          "file1": "TV:tv_original.pas",
+          "file2": "independent_code.pas",
+          "max_similarity": 0.2,
+          "reason": "Different code structure"
+        }
+      ],
+      "block_min_length": 3,
+      "note": "This detector is weaker for renamed code; mainly catches verbatim copies"
+    },
+    "C_procedure_level": {
+      "positive_must_detect": [
+        {
+          "tv_procedure": "InitStream / ReadByte / WriteByte",
+          "dn_procedure": "SetupBuffer / GetByte / PutByte",
+          "min_similarity": 0.7,
+          "reason": "Procedure structure and token sequence are similar; signatures differ (renaming)"
+        }
+      ],
+      "negative_must_not_detect_above": [
+        {
+          "tv_procedure": "InitStream",
+          "dn_procedure": "TQueue.Create",
+          "max_similarity": 0.4,
+          "reason": "Different algorithms (stream init vs queue init)"
+        }
+      ],
+      "similarity_threshold": 0.7
+    }
+  },
+  "validation_procedure": {
+    "step1": "Run all three detectors on test-data/",
+    "step2": "For each positive example: verify at least detector A or C reports similarity >= min_similarity",
+    "step3": "For each negative example: verify all detectors report similarity <= max_similarity",
+    "step4": "If validation fails, adjust detector parameters (k, threshold) and retest",
+    "step5": "After successful validation, detectors are ready for full audit run"
+  },
+  "notes": [
+    "These test cases are synthetic but based on patterns common in Turbo Vision library",
+    "Real audit (D3) will use actual TV and DN source code",
+    "Control test results will guide threshold selection for production detectors"
+  ]
+}
