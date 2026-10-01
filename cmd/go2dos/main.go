@@ -68,6 +68,7 @@ func run() int {
 	lenient := flag.Bool("lenient", false, "answer unsupported BIOS/DOS calls \"not supported\" instead of stopping; print a summary at the end")
 	watch := flag.String("watch", "", "log writes to these comma-separated addresses: linear hex or SEG:OFF, optionally /N bytes (with -trace or in dumps)")
 	display := flag.String("display", "console", "terminal display: console (command output in the terminal, full-screen programs on the alternate screen) or grid")
+	size := flag.String("size", "", "text screen size `WxH` (columns 80-255, rows 25-255, at most 32768 cells; default 80x25)")
 	brk := flag.String("break", "", "log registers when execution reaches these comma-separated SEG:OFF hex addresses")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage); flag.PrintDefaults() }
 	flag.Parse()
@@ -112,6 +113,15 @@ func run() int {
 		rend = newRenderer(os.Stdout)
 	}
 	cfg := machine.Config{Drives: drives, Codepage: *cpNum, Lenient: *lenient, TraceLog: traceW, TraceFilter: filter}
+	if *size != "" {
+		w, h, ok := strings.Cut(*size, "x")
+		cols, err1 := strconv.Atoi(w)
+		rows, err2 := strconv.Atoi(h)
+		if !ok || err1 != nil || err2 != nil {
+			return fail(fmt.Errorf("bad -size %q (want WxH, for example 132x43)", *size))
+		}
+		cfg.Cols, cfg.Rows = cols, rows
+	}
 	for _, b := range strings.Split(*brk, ",") {
 		if b == "" {
 			continue

@@ -1,6 +1,7 @@
 package bios
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/unxed/go2dos/cpu"
@@ -37,6 +38,14 @@ const (
 	bdaKbdFlags3  = 0x496
 )
 
+// The video window: B0000-C7FFF, 96 KiB. Monochrome text uses B0000, color
+// text B8000 and up; a text screen of any size (SetTextSize) may take the 64
+// KiB from B8000 to C7FFF, that is 32768 cells.
+const (
+	videoStart = 0xB0000
+	videoEnd   = 0xC8000
+)
+
 // Video implements INT 10h and the CRTC/status ports of a VGA in text mode.
 type Video struct {
 	e       *hle.Env
@@ -44,6 +53,10 @@ type Video struct {
 	crtcIdx byte
 	crtcGen uint32
 	reads   uint32 // input status reads, the clock of the retrace model
+
+	// cfgCols and cfgRows set the size of the 80-column text modes (2, 3, 7);
+	// zero means the standard 80x25 (SetTextSize).
+	cfgCols, cfgRows int
 
 	// Stream, if set, receives every character written through the
 	// teletype (the stream channel, as opposed to direct video writes).
@@ -54,7 +67,7 @@ type Video struct {
 // DirectWrites counts writes to video memory not made by the teletype:
 // direct writes by programs and positional BIOS output.
 func (v *Video) DirectWrites() uint32 {
-	return v.e.Mem.RangeWrites(0xB0000, 0xC0000) - v.hleWrites
+	return v.e.Mem.RangeWrites(videoStart, videoEnd) - v.hleWrites
 }
 
 func (v *Video) b8(a uint32) byte       { return v.e.Mem.R8(a) }
@@ -94,26 +107,46 @@ func (v *Video) cellAddr(page byte, row, col int) uint32 {
 	return v.pageAddr(page) + uint32((row*v.cols()+col)*2)
 }
 
+// SetTextSize sets the size of the 80-column text modes and applies it to the
+// current mode. The window is 32768 cells at most; the columns must fit the
+// byte that INT 10h/0Fh returns, the rows the byte at 0040:0084.
+func (v *Video) SetTextSize(cols, rows int) error {
+	if cols < 80 || cols > 255 || rows < 25 || rows > 255 || cols*rows > 0x8000 {
+		return fmt.Errorf("text screen %dx%d: columns 80-255, rows 25-255, at most 32768 cells", cols, rows)
+	}
+	v.cfgCols, v.cfgRows = cols, rows
+	return v.setMode(v.mode(), true)
+}
+
 func (v *Video) setMode(m byte, clear bool) error {
-	cols := 80
+	cols, rows, height := 80, 25, 16
 	switch m {
 	case 0, 1:
 		cols = 40
 	case 2, 3, 7:
+		if v.cfgCols != 0 {
+			cols, rows = v.cfgCols, v.cfgRows
+		}
 	default:
 		return hle.Unsupported("video mode %02Xh (only text modes 0-3 and 7)", m)
 	}
+	if rows > 25 {
+		height = 8 // the 43/50-line modes use the 8x8 font
+	}
 	v.w8(bdaVideoMode, m)
 	v.w16(bdaCols, uint16(cols))
-	if cols == 40 {
-		v.w16(bdaPageSize, 0x0800)
-	} else {
-		v.w16(bdaPageSize, 0x1000)
-	}
+	// The regeneration buffer size is rounded up to 256 bytes: 0800h for
+	// 40x25, 1000h for 80x25 and 2000h for 80x50, as the BIOS reports.
+	v.w16(bdaPageSize, uint16((cols*rows*2+0xFF)&^0xFF))
 	v.w16(bdaPageStart, 0)
 	v.w8(bdaActivePage, 0)
-	v.w8(bdaRows, 24)
-	v.w8(bdaCharHeight, 16)
+	v.w8(bdaRows, byte(rows-1))
+	v.w8(bdaCharHeight, byte(height))
+	// CRTC: displayed characters, scan lines per character, the lines of
+	// the screen (low 8 bits and the two overflow bits) and the row offset.
+	lines := rows*height - 1
+	v.crtc[0x01], v.crtc[0x09], v.crtc[0x12], v.crtc[0x13] = byte(cols-1), byte(height-1), byte(lines), byte(cols/2)
+	v.crtc[0x07] = byte(lines>>8&1)<<1 | byte(lines>>9&1)<<6
 	v.w16(bdaCRTCBase, 0x3D4)
 	v.w8(bdaModeCtl, 0x29)
 	v.w8(bdaPalette, 0x30)
@@ -130,7 +163,7 @@ func (v *Video) setMode(m byte, clear bool) error {
 		v.setCursor(p, 0, 0)
 	}
 	if clear {
-		for a := v.base(); a < v.base()+0x8000; a += 2 {
+		for a := v.base(); a < v.base()+0x10000 && a < videoEnd; a += 2 {
 			v.e.Mem.W16(a, 0x0720)
 		}
 	}
@@ -179,9 +212,9 @@ func (v *Video) Teletype(ch byte, page byte) {
 	if v.Stream != nil {
 		v.Stream(ch)
 	}
-	before := v.e.Mem.RangeWrites(0xB0000, 0xC0000)
+	before := v.e.Mem.RangeWrites(videoStart, videoEnd)
 	v.teletype(ch, page)
-	v.hleWrites += v.e.Mem.RangeWrites(0xB0000, 0xC0000) - before
+	v.hleWrites += v.e.Mem.RangeWrites(videoStart, videoEnd) - before
 }
 
 func (v *Video) teletype(ch byte, page byte) {
@@ -431,7 +464,7 @@ func (s *Screen) Region(x, y, w, h int) string {
 // data area and the CRTC registers.
 func (v *Video) Snapshot() *Screen {
 	s := &Screen{Mode: v.mode()}
-	s.Version = v.e.Mem.RangeWrites(0xB0000, 0xC0000) + v.crtcGen
+	s.Version = v.e.Mem.RangeWrites(videoStart, videoEnd) + v.crtcGen
 	switch s.Mode {
 	case 0, 1, 2, 3, 7:
 	default:

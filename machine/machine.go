@@ -62,6 +62,9 @@ type Config struct {
 	// (critical error) when a program uses them.
 	NotReady     map[byte]bool
 	WriteProtect map[byte]bool
+	// Cols and Rows set the size of the 80-column text modes (zero: 80x25):
+	// BDA 0040:004A and 0040:0084, CRTC, the video window up to 32768 cells.
+	Cols, Rows int
 	// Watch lists linear addresses whose writes are logged to the trace
 	// together with the writing instruction (diagnostics).
 	Watch []uint32
@@ -194,6 +197,18 @@ func New(cfg Config) (*Machine, error) {
 		}
 	}
 	m.BIOS = bios.New(m.Env)
+	if cfg.Cols != 0 || cfg.Rows != 0 {
+		cols, rows := cfg.Cols, cfg.Rows
+		if cols == 0 {
+			cols = 80
+		}
+		if rows == 0 {
+			rows = 25
+		}
+		if err := m.BIOS.Video.SetTextSize(cols, rows); err != nil {
+			return nil, err
+		}
+	}
 	m.BIOS.IdlePolls = cfg.IdlePolls
 	m.BIOS.IRQ1 = func() { m.pic.raise(1); m.CPU.IntrPending = true }
 	env := cfg.Env
