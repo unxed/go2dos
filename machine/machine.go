@@ -31,6 +31,9 @@ type Config struct {
 	Drive byte
 	// Codepage is the OEM code page; 0 picks it from the host locale.
 	Codepage int
+	// Labels maps drive letters to volume labels (up to 11 characters); a
+	// host directory has none, so by default drives report "NO NAME".
+	Labels map[byte]string
 	// Env is the DOS environment (NAME=VALUE).
 	Env []string
 	// Now returns the wall-clock time (default time.Now).
@@ -159,7 +162,7 @@ func New(cfg Config) (*Machine, error) {
 	if env == nil {
 		env = []string{`COMSPEC=C:\COMMAND.COM`, `PATH=C:\`, `PROMPT=$P$G`}
 	}
-	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env})
+	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env, Labels: cfg.Labels})
 	if err != nil {
 		return nil, err
 	}

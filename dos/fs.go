@@ -23,6 +23,7 @@ const (
 	errBadHandle    = 0x06
 	errBadMCB       = 0x09
 	errNoMem        = 0x08
+	errInvalidData  = 0x0D
 	errBadDrive     = 0x0F
 	errCurDir       = 0x10
 	errNotSame      = 0x11
@@ -70,6 +71,7 @@ type dirIndex struct {
 type fsys struct {
 	e      *hle.Env
 	drives [26]string // host roots; "" if not mapped
+	labels [26]string // volume labels in the code page, without padding
 	cur    int        // current drive (0 = A)
 	cwd    [26]string // per drive: "\" or "\DIR\SUB"
 	cache  map[string]*dirIndex
@@ -97,6 +99,7 @@ func newFS(e *hle.Env, cfg Config) (*fsys, error) {
 		}
 		f.drives[l-'A'] = abs
 	}
+	f.initLabels(cfg.Labels)
 	for i := range f.cwd {
 		f.cwd[i] = `\`
 	}

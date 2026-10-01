@@ -117,6 +117,8 @@ func (d *DOS) int21(e *hle.Env) error {
 		default:
 			return hle.Unsupported("INT 21h AX=%04Xh", c.R[cpu.AX])
 		}
+	case 0x32:
+		d.getDPB(e)
 	case 0x34:
 		c.SetSeg(cpu.ES, dataSeg)
 		c.R[cpu.BX] = offInDOS
@@ -383,16 +385,16 @@ func (d *DOS) int21(e *hle.Env) error {
 		d.ok(e) // handle count: our tables are dynamic
 	case 0x68, 0x6A:
 		d.ok(e)
-	case 0x69:
+	case 0x69: // get/set serial number (same structure as 440Dh/66h)
 		if c.AL() == 0 {
-			a := e.DSDX()
-			e.Mem.W16(a, 0)
-			e.Mem.W32(a+2, 0x12345678)
-			e.Mem.SetBytes(a+6, []byte("GO2DOS     FAT16   "))
-			d.ok(e)
-		} else {
-			d.ok(e)
+			drive, errc := d.ioctlDrive(c.BL())
+			if errc != 0 {
+				d.fail(e, errc)
+				return nil
+			}
+			d.mediaID(e.DSDX(), drive)
 		}
+		d.ok(e)
 	case 0x6C:
 		d.extOpen(e)
 	case 0x71:
@@ -553,7 +555,16 @@ func (d *DOS) ioctl(e *hle.Env) error {
 		}
 		c.R[cpu.DX] = info
 		c.R[cpu.AX] = info
-	case 0x01:
+	case 0x01: // set device information: DH must be 0 or 1 (MS-DOS IOCTL.ASM);
+		// the flags themselves are not modelled
+		if _, errc := d.handle(c.R[cpu.BX]); errc != 0 {
+			d.fail(e, errc)
+			return nil
+		}
+		if c.DH()&0xFE != 0 { // DH=01h is accepted too
+			d.fail(e, errInvalidData)
+			return nil
+		}
 	case 0x06: // input status
 		of, errc := d.handle(c.R[cpu.BX])
 		if errc != 0 {
@@ -571,14 +582,33 @@ func (d *DOS) ioctl(e *hle.Env) error {
 		}
 	case 0x07: // output status
 		c.SetAL(0xFF)
-	case 0x08: // removable?
+	case 0x08: // removable? Host directories are fixed media.
+		if _, errc := d.ioctlDrive(c.BL()); errc != 0 {
+			d.fail(e, errc)
+			return nil
+		}
 		c.R[cpu.AX] = 1
-	case 0x09: // remote?
+	case 0x09: // device attribute word: local, not SUBSTed, not remote
+		if _, errc := d.ioctlDrive(c.BL()); errc != 0 {
+			d.fail(e, errc)
+			return nil
+		}
 		c.R[cpu.DX] = 0
 	case 0x0A:
 		c.R[cpu.DX] = 0
-	case 0x0E:
+	case 0x0D:
+		return d.genericIOCTL(e)
+	case 0x0E: // get logical drive map: one logical drive per device
+		if _, errc := d.ioctlDrive(c.BL()); errc != 0 {
+			d.fail(e, errc)
+			return nil
+		}
 		c.SetAL(0)
+	case 0x0F: // set logical drive map: nothing to remap
+		if _, errc := d.ioctlDrive(c.BL()); errc != 0 {
+			d.fail(e, errc)
+			return nil
+		}
 	default:
 		return hle.Unsupported("INT 21h AX=%04Xh (IOCTL)", c.R[cpu.AX])
 	}

@@ -40,6 +40,10 @@ type Config struct {
 	Drives  map[byte]string // drive letter (A-Z) -> host directory
 	Current byte            // current drive letter
 	Env     []string        // environment variables (NAME=VALUE)
+	// Labels maps drive letters to volume labels (up to 11 characters).
+	// A host directory has no label, so without an entry the drive reports
+	// "NO NAME" and FindFirst with attribute 08h finds nothing.
+	Labels map[byte]string
 }
 
 // DOS is the kernel state.
