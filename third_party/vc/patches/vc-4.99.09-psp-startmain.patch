@@ -1,8 +1,7 @@
---- a/versions/4.99.09/VC.ASM
-+++ b/versions/4.99.09/VC.ASM
-@@ -450,12 +450,15 @@
- 
- ;---------------------------------------------------------------
+diff -ruN a/VC.ASM b/VC.ASM
+--- a/VC.ASM	2026-10-01 04:00:00.000000000 +0000
++++ b/VC.ASM	2026-10-01 04:00:00.000000000 +0000
+@@ -452,6 +452,7 @@
  OvlPrm		DB	OvlPrm_L-2, 0, VcID
  OvlPrmPoint	DW	StartMain, 0
  		DB	13
@@ -10,7 +9,3 @@
  OvlPrm_L	=	$ - OvlPrm
  OvlExt_F	DB	'OVL',0
  Command_S	DB	'command processor', 0
- RunErr_S	DB	'There is not enough memory to run this command', 13,10,0
- BadFile_S	DB	13,10, "Bad or missing ", 0
- Retry_S		DB	13,10, "Press ENTER to try again or ESC to abort", 13,10,0
- 
