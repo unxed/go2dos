@@ -420,7 +420,7 @@ var shellInternal = map[string]bool{
 	"DIR": true, "CD": true, "CHDIR": true, "MD": true, "MKDIR": true, "RD": true, "RMDIR": true,
 	"SET": true, "ECHO": true, "TYPE": true, "VER": true, "EXIT": true, "REM": true, "PATH": true,
 	"PROMPT": true, "DEL": true, "ERASE": true, "REN": true, "RENAME": true, "COPY": true,
-	"CLIP": true, "CALL": true, "GOTO": true, "IF": true, "FOR": true, "PAUSE": true, "CLS": true, "SHIFT": true,
+	"CLIP": true, "MODE": true, "CALL": true, "GOTO": true, "IF": true, "FOR": true, "PAUSE": true, "CLS": true, "SHIFT": true,
 }
 
 // redirect выполняет перенаправление вывода/ввода оболочки; возвращает
@@ -773,6 +773,10 @@ func (d *DOS) shellInternalCmd(e *hle.Env, st *shellState, name, args string) {
 		d.shDir(st, a)
 	case "CLIP":
 		d.shClip(st, args)
+	case "CLS":
+		d.shCLS()
+	case "MODE":
+		d.shMode(st, args)
 	case "CALL":
 		d.shPrint("CALL is not supported by the built-in COMMAND.COM" + crlf)
 		st.level = 1

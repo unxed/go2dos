@@ -162,3 +162,11 @@ func TestInputParserClipboardKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestTermHostClear(t *testing.T) {
+	var b bytes.Buffer
+	newTermHost(&b).Clear()
+	if got := b.String(); !strings.Contains(got, "\x1b[2J") || !strings.Contains(got, "\x1b[H") {
+		t.Errorf("Clear wrote %q", got)
+	}
+}

@@ -148,6 +148,9 @@ func ValidTextSize(cols, rows int) error {
 	return nil
 }
 
+// Clear clears the screen and homes the cursor (a mode set of the current mode).
+func (v *Video) Clear() { v.setMode(v.mode(), true) }
+
 // Size returns the columns and rows of the current text mode.
 func (v *Video) Size() (cols, rows int) { return v.cols(), v.rows() }
 

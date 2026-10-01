@@ -55,6 +55,9 @@ func newTermHost(w io.Writer) *termHost {
 func (h *termHost) Draw(s *bios.Screen)                { h.rend.draw(s) }
 func (h *termHost) Stream(b []byte, page *cp.Codepage) { h.rend.stream(b, page) }
 
+// Clear clears the terminal (the shell's CLS in console mode).
+func (h *termHost) Clear() { h.rend.clear() }
+
 func (h *termHost) Display(grid bool) {
 	h.rend.display(grid)
 	h.altOn = grid
@@ -218,6 +221,14 @@ type renderer struct {
 }
 
 func newRenderer(w io.Writer) *renderer { return &renderer{w: bufio.NewWriterSize(w, 64<<10)} }
+
+// clear clears the terminal and homes the cursor.
+func (r *renderer) clear() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.w.WriteString("\x1b[0m\x1b[2J\x1b[H")
+	r.w.Flush()
+}
 
 // display switches between the terminal's normal buffer (console stream)
 // and the alternate screen (grid).

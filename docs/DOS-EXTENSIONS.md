@@ -229,7 +229,7 @@ the exit code behave as with a real shell. If a `COMMAND.COM` file is there (for
 instance FreeCOM), it runs instead.
 
 Internal commands: `REM ECHO VER EXIT CD/CHDIR MD/MKDIR RD/RMDIR DEL/ERASE
-REN/RENAME SET PATH PROMPT TYPE COPY DIR CALL CLIP`. The lookup order is: internal
+REN/RENAME SET PATH PROMPT TYPE COPY DIR CALL CLIP CLS MODE`. The lookup order is: internal
 commands, DOS programs (the current directory, then `PATH`), and, with host
 commands on (§8), the programs of the host (`PATH` of the host); then "Bad command
 or file name". A line that starts with `!` goes to the host at once. The exit code of
@@ -255,8 +255,16 @@ file (up to a 0 byte or Ctrl-Z), `CLIP /C` clears it. Without a clipboard (headl
 "No clipboard in this session" and sets the exit code 1. Redirections `<`, `>`, `>>` take a
 name in double quotes (`> "long name.txt"`) and long names.
 
+`CLS` and `MODE CON` (implemented, `dos/shmode.go`; tests `machine/shell_test.go`): `CLS` clears
+the emulated screen and, in console display mode while the stream (not the grid) is shown, the
+terminal too (the optional method `Clear` of the host, `ESC[2J ESC[H`). `MODE CON` shows the
+size of the text window (that of `DOS-HOST/TEXTWIN`, §7); `MODE CON COLS=100 LINES=40` sets
+it (columns 80-255, lines 25-255, at most 32768 cells), clears the screen, and gives a
+program that asked for size events (§7) the `FF00h` key. The terminal front end does not
+resize the terminal window itself (the grid display follows the new size).
+
 Planned (the owner's wish, recorded in `HOSTEXEC.md`): the rest of the extensions in the
-built-in commands (the window size, command execution), so that what a
+built-in commands (command execution with the extensions visible), so that what a
 program can do on its own it can also do through the shell. Programs started from the shell
 already see every extension of this document (§2): the providers belong to the machine.
 

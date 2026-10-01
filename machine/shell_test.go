@@ -21,7 +21,7 @@ func runShell(t *testing.T, tail string, files map[string]string) (*Machine, str
 }
 
 // runShellCfg is runShell with extra machine settings (drives and code page are set here).
-func runShellCfg(t *testing.T, cfg Config, tail string, files map[string]string) (*Machine, string, string) {
+func runShellCfg(t *testing.T, cfg Config, tail string, files map[string]string, pre ...func(*Machine)) (*Machine, string, string) {
 	t.Helper()
 	dir := t.TempDir()
 	for _, n := range []string{"runcmd.com", "hello.com", "mark.com"} {
@@ -45,6 +45,9 @@ func runShellCfg(t *testing.T, cfg Config, tail string, files map[string]string)
 	m, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, f := range pre {
+		f(m)
 	}
 	if err := m.Load(`C:\RUNCMD.COM`, tail); err != nil {
 		t.Fatal(err)
@@ -231,5 +234,45 @@ func TestShellClipNone(t *testing.T) {
 	_, text, _ := runShell(t, " /C CLIP", nil)
 	if !strings.Contains(text, "No clipboard") {
 		t.Errorf("screen:\n%s", text)
+	}
+}
+
+// CLS clears the emulated screen; MODE CON shows and sets the window size.
+func TestShellClsAndMode(t *testing.T) {
+	bat := "@echo off\r\necho before\r\ncls\r\necho after\r\nmode con\r\n"
+	_, text, _ := runShell(t, " /C T6.BAT", map[string]string{"T6.BAT": bat})
+	if strings.Contains(text, "before") {
+		t.Errorf("CLS left the text:\n%s", text)
+	}
+	for _, w := range []string{"after", "Lines:        25", "Columns:      80"} {
+		if !strings.Contains(text, w) {
+			t.Errorf("screen lacks %q:\n%s", w, text)
+		}
+	}
+}
+
+func TestShellModeSet(t *testing.T) {
+	m, _, _ := runShell(t, " /C MODE CON COLS=100 LINES=40", nil)
+	if cols, rows := m.BIOS.Video.Size(); cols != 100 || rows != 40 {
+		t.Errorf("size %dx%d, want 100x40", cols, rows)
+	}
+}
+
+func TestShellModeBad(t *testing.T) {
+	_, text, _ := runShell(t, " /C MODE CON COLS=10", nil)
+	if !strings.Contains(text, "columns 80-255") {
+		t.Errorf("screen:\n%s", text)
+	}
+}
+
+// In console mode CLS also clears the terminal (the host's Clear), while the stream is shown.
+func TestShellClsClearsConsole(t *testing.T) {
+	n := 0
+	runShellCfg(t, Config{Display: "console"}, " /C CLS", nil, func(m *Machine) {
+		m.SetConsoleOutput(func([]byte) {}, func(bool) {})
+		m.SetConsoleClear(func() { n++ })
+	})
+	if n != 1 {
+		t.Errorf("terminal cleared %d times, want 1", n)
 	}
 }

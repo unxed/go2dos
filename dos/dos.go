@@ -107,6 +107,7 @@ type DOS struct {
 	winWatch bool
 	winGrid  bool
 	OnRole   func(grid bool)
+	OnCLS    func()  // the shell's CLS; nil: the emulated screen only
 	host     *hostIO // pipe mode, otherwise nil
 
 	faults    [lastDrive]driveFault

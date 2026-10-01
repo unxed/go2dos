@@ -224,6 +224,9 @@ func Run(o *Options, args []string, host Host) int {
 	if !o.Headless && !pipe && display == "console" {
 		page := m.CP
 		m.SetConsoleOutput(func(b []byte) { console.Stream(b, page) }, console.Display)
+		if cl, ok := console.(interface{ Clear() }); ok {
+			m.SetConsoleClear(cl.Clear)
+		}
 	}
 	if m.CodepageInfo.Note != "" {
 		fmt.Fprintln(os.Stderr, "go2dos:", m.CodepageInfo.Note)

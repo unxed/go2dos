@@ -85,6 +85,7 @@ type Config struct {
 	// (OnDisplay(false)). See docs/SCREEN.md.
 	Display   string
 	OnStream  func(b []byte)
+	OnClear   func() // console mode: clear the terminal (the shell's CLS)
 	OnDisplay func(grid bool)
 	// Stdin, Stdout and Stderr switch on pipe mode (docs/SCREEN.md, S1):
 	// DOS handles 0, 1 and 2 are these host streams (UTF-8 on the host side,
@@ -243,6 +244,7 @@ func New(cfg Config) (*Machine, error) {
 	m.pic.imr = 0
 	m.CPU.Intr = m.pic.ack
 	m.DOS.OnRole = m.setRole
+	m.DOS.OnCLS = m.cls
 	if m.DOS.PipeMode() {
 		m.BIOS.Video.Stream = m.DOS.HostTTY
 	}
@@ -697,6 +699,19 @@ func (m *Machine) flushStream() {
 // call before Run.
 func (m *Machine) SetConsoleOutput(onStream func([]byte), onDisplay func(grid bool)) {
 	m.cfg.OnStream, m.cfg.OnDisplay = onStream, onDisplay
+}
+
+// SetConsoleClear sets the callback that clears the terminal in console mode.
+func (m *Machine) SetConsoleClear(f func()) { m.cfg.OnClear = f }
+
+// cls is the shell's CLS: the emulated screen, and in console mode, while the
+// stream (not the grid) is shown, the terminal too.
+func (m *Machine) cls() {
+	m.BIOS.Video.Clear()
+	if m.console && !m.grid && m.cfg.OnClear != nil {
+		m.flushStream()
+		m.cfg.OnClear()
+	}
 }
 
 // GridShown reports whether the grid is currently displayed; call after
