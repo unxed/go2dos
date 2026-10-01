@@ -13,13 +13,13 @@ import (
 )
 
 // A COM program that makes two unsupported calls, INT 21h AH=5Ah and
-// INT 10h AH=FFh, and checks the INT 21h answer ("invalid function").
+// INT 10h AH=FDh, and checks the INT 21h answer ("invalid function").
 var lenientProg = []byte{
 	0xB4, 0x5A, 0xCD, 0x21, // mov ah,5Ah; int 21h
 	0x73, 0x0E, // jnc bad
 	0x3D, 0x01, 0x00, // cmp ax,1
 	0x75, 0x09, // jne bad
-	0xB4, 0xFF, 0xCD, 0x10, // mov ah,0FFh; int 10h
+	0xB4, 0xFD, 0xCD, 0x10, // mov ah,0FDh; int 10h
 	0xB8, 0x00, 0x4C, 0xCD, 0x21, // mov ax,4C00h; int 21h
 	0xB8, 0x01, 0x4C, 0xCD, 0x21, // bad: mov ax,4C01h; int 21h
 }
@@ -65,7 +65,7 @@ func TestLenient(t *testing.T) {
 	if list[0].Handler != "int21" || !strings.Contains(list[0].What, "AH=5Ah") || list[0].Count != 1 {
 		t.Errorf("first: %+v", list[0])
 	}
-	if list[1].Handler != "int10" || !strings.Contains(list[1].What, "AH=FFh") {
+	if list[1].Handler != "int10" || !strings.Contains(list[1].What, "AH=FDh") {
 		t.Errorf("second: %+v", list[1])
 	}
 	if s := hle.FormatUnsupported(list); !strings.Contains(s, "int21") || !strings.Contains(s, "int10") {
@@ -74,5 +74,33 @@ func TestLenient(t *testing.T) {
 	rep := m.report("test")
 	if !strings.Contains(rep, "unsupported calls answered in lenient mode") || !strings.Contains(rep, "AH=5Ah") {
 		t.Errorf("the dump report lacks the summary")
+	}
+}
+
+// INT 10h AH=FFh (TopView/DESQview "update screen from shadow buffer") is not
+// an unsupported call: without a multitasker (AH=FEh leaves ES:DI unchanged)
+// there is no shadow buffer and nothing to update; the machine must not stop.
+func TestTopViewUpdateIsNoop(t *testing.T) {
+	prog := []byte{
+		0xB4, 0xFE, 0xCD, 0x10, // mov ah,0FEh; int 10h (get shadow buffer)
+		0xB9, 0x10, 0x00, // mov cx,16
+		0xB4, 0xFF, 0xCD, 0x10, // mov ah,0FFh; int 10h (update)
+		0xB8, 0x00, 0x4C, 0xCD, 0x21, // mov ax,4C00h; int 21h
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "TV.COM"), prog, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(Config{Drives: map[byte]string{'C': dir}, Codepage: 437})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Load(`C:\TV.COM`, ""); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if c := exitCode(t, m.Run(ctx)); c != 0 {
+		t.Fatalf("exit code %d, want 0", c)
 	}
 }
