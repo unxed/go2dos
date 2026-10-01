@@ -2,7 +2,7 @@
 
 Векторы (vc-wasm/oracle/vectors.json) записаны программой vc-wasm/oracle:
 она запускает процедуры из VC.COM в CPU go2dos. Здесь те же входы подаются в
-vc-wasm/src/vcsub1.wat и сравниваются выходы. Перегенерация векторов — в README.
+модуль из vc-wasm/src и сравниваются выходы. Перегенерация векторов — в README.
 
 Запуск:
     pip install wasmtime
@@ -12,65 +12,58 @@ import json
 import unittest
 from pathlib import Path
 
-from wasmtime import Engine, Instance, Module, Store, wat2wasm
+from vcmod import VC
 
-ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "src" / "vcsub1.wat"
-VECTORS = ROOT / "oracle" / "vectors.json"
-SCREEN = 0x10000   # окно текстового экрана (D1)
-WINDOW = 0x10000   # окно ES:0000-FFFF, которое сверяет оракул
-ES_STR = 0x2000    # произвольная база строки для TxtNum (в оракуле другая)
+VECTORS = Path(__file__).resolve().parent.parent / "oracle" / "vectors.json"
+SCR, STR = 0xB800, 0x3000  # сегменты, как в oracle/main.go
 
 
 class OracleTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.vec = json.loads(VECTORS.read_text(encoding="utf-8"))
-        cls.engine = Engine()
-        cls.module = Module(cls.engine, bytes(wat2wasm(SRC.read_text(encoding="utf-8"))))
 
     def setUp(self):
-        self.store = Store(self.engine)
-        self.ex = Instance(self.store, self.module, []).exports(self.store)
-        self.mem = self.ex["memory"]
-        self.fill = bytes([self.vec["screen_fill"]]) * WINDOW
-
-    def call(self, name, *args):
-        return self.ex[name](self.store, *args)
-
-    def check_hex(self, name):
-        for v in self.vec[name]:
-            self.mem.write(self.store, self.fill, SCREEN)
-            out_al, out_di = self.call(name, v["al"], SCREEN, v["di"])
-            want = bytearray(self.fill)
-            for off, val in v["diff"]:
-                want[off] = val
-            got = bytes(self.mem.read(self.store, SCREEN, SCREEN + WINDOW))
-            self.assertEqual((out_al, out_di), (v["out_al"], v["out_di"]), v)
-            self.assertEqual(got, bytes(want), v)
+        self.vc = VC()
 
     def test_source_is_real_vc(self):
         # Оракул должен быть записан с настоящего VC.COM, найденного по сигнатурам.
-        src = self.vec["source"]
-        self.assertEqual(len(src["sha256"]), 64)
+        self.assertEqual(len(self.vec["source"]["sha256"]), 64)
         self.assertEqual(set(self.vec["offsets"]), {"hexcod", "hexbyt", "txtnum"})
 
+    def check_hex(self, key, proc):
+        fill = bytes([self.vec["screen_fill"]]) * 0x10000
+        for v in self.vec[key]:
+            self.vc.write(SCR << 4, fill)
+            out = self.vc.call(proc, ax=0xA500 | v["al"], bx=0x1111, cx=0x2222,
+                               dx=0x3333, si=0x4444, di=v["di"], es=SCR)
+            want = bytearray(fill)
+            for off, val in v["diff"]:
+                want[off] = val
+            self.assertEqual((out["ax"] & 0xFF, out["di"]), (v["out_al"], v["out_di"]), v)
+            self.assertEqual((out["ax"] >> 8, out["bx"], out["cx"], out["dx"], out["si"]),
+                             (0xA5, 0x1111, 0x2222, 0x3333, 0x4444), v)
+            self.assertEqual(self.vc.read(SCR << 4, 0x10000), bytes(want), v)
+
     def test_hexcod_against_vc(self):
-        self.check_hex("hexcod")
+        self.check_hex("hexcod", "HexCod")
 
     def test_hexbyt_against_vc(self):
-        self.check_hex("hexbyt")
+        self.check_hex("hexbyt", "HexByt")
 
     def test_txtnum_against_vc(self):
         si = self.vec["txtnum_si"]
-        zeros = bytes(0x100)
         for v in self.vec["txtnum"]:
             text = bytes.fromhex(v["text"])
-            self.mem.write(self.store, zeros, ES_STR)
-            self.mem.write(self.store, text, ES_STR + si)
-            ax, out_si, cf = self.call("txtnum", ES_STR, si)
-            self.assertEqual((ax, out_si, cf), (v["ax"], v["out_si"], v["cf"]), v)
-            self.assertEqual(bytes(self.mem.read(self.store, ES_STR + si, ES_STR + si + len(text))), text, v)
+            self.vc.write(STR << 4, bytes(0x100))
+            self.vc.write((STR << 4) + si, text)
+            out = self.vc.call("TxtNum", ax=0xBEEF, bx=0x1111, cx=0x2222,
+                               dx=0x3333, di=0x4444, si=si, es=STR)
+            self.assertEqual((out["ax"], out["si"], out["flags"] & 1),
+                             (v["ax"], v["out_si"], v["cf"]), v)
+            self.assertEqual((out["bx"], out["cx"], out["dx"], out["di"]),
+                             (0x1111, 0x2222, 0x3333, 0x4444), v)
+            self.assertEqual(self.vc.read((STR << 4) + si, len(text)), text, v)
 
 
 if __name__ == "__main__":

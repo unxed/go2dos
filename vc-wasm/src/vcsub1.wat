@@ -1,99 +1,95 @@
-;; vcsub1.wat — ручной (LLM) перевод процедур Volkov Commander 4.05 в WebAssembly.
+;; vcsub1.wat — перевод процедур VC 4.05 в WAT. Образец правил vc-wasm/PLAN.md, §3.
 ;;
-;; Источник: github.com/ddanila/vc, versions/4.05/VCSUB1.INC (BSD-2-Clause,
-;; (c) Vsevolod Volkov; текст лицензии — ../LICENSE-VC.TXT).
-;; Переведены: HexCod, HexByt, TxtNum. Соглашения перевода (D1-D6) — в ../README.md.
-;;
-;; D1. Память. Один сегмент tiny-модели занимает адреса 0x0000-0xFFFF; окно
-;;     текстового экрана (сегмент B800h) отображено с 0x10000. Базу сегмента,
-;;     через который идёт обращение (ES:), процедура получает параметром $es.
-;; D2. Регистры. Читаемые процедурой регистры — параметры, меняемые и видимые
-;;     вызывающему — результаты (несколько значений), CF — последний результат
-;;     (0 или 1). Сохраняемые через PUSH/POP регистры в результаты не входят.
-;; D3. Флаги вычисляются только там, где их потом читает код (см. комментарии).
-;; D4. Переходы — структурные block/loop, без диспетчера.
-;; D6. Особенности оригинала (насыщение числа, выходные флаги) сохранены, а не
-;;     «исправлены».
+;; Источник: pts-vc405-port vc.asm (= VCSUB1.INC в ddanila/vc versions/4.05),
+;; BSD-2-Clause, (c) Vsevolod Volkov; лицензия — ../LICENSE-VC.TXT.
+;; Адреса процедур и адреса возврата CALL — из листинга JWasm (PLAN §2).
+;; Поля модуля без обёртки: склеивает tools/build.py.
+;; Экспорт по имени — временный, для тестов: после этапа A вход — vc_call(addr).
 
-(module
-  (memory (export "memory") 2)
+;; A48C HexCod PROC NEAR
+;; Вход: AL; ES:DI, DF.  Выход: AL, DI.  Флаги-выход: —.  Сохраняет: —.
+;; Метки: 0 — вход, 1 — HexCd1.
+(func $HexCod (export "HexCod") (param $L i32)
+  (loop $next
+    (block $L1
+      (block $L0
+        (br_table $L0 $L1 (local.get $L)))
+      ;; --- 0: вход
+      (call $set_al (i32.and (call $al) (i32.const 0x0F)))     ;; AND  AL,0Fh
+      (call $set_al (i32.add (call $al) (i32.const 0x30)))     ;; ADD  AL,'0'
+      (if (i32.le_u (call $al) (i32.const 0x39))               ;; CMP  AL,'9'
+        (then (local.set $L (i32.const 1)) (br $next)))        ;; JBE  HexCd1
+      (call $set_al (i32.add (call $al) (i32.const 7))))       ;; ADD  AL,7
+    ;; --- 1: HexCd1
+    (call $stosb)                                              ;; STOSB
+    (global.set $di                                            ;; INC  DI
+      (i32.and (i32.add (global.get $di) (i32.const 1)) (i32.const 0xFFFF)))
+    (call $ret (i32.const 0)) (return)))                       ;; RET
 
-  ;; HexCod: AL (младший полубайт) -> ASCII-цифра в ES:[DI], DI += 2.
-  ;;   AND AL,0Fh / ADD AL,'0' / CMP AL,'9' / JBE / ADD AL,7 / STOSB / INC DI
-  ;; Вход: $al, $es, $di. Выход: AL (записанный символ), DI.
-  ;; Предполагает DF=0 (STOSB идёт вперёд). Флаги на выходе не моделируются
-  ;; (по местам вызова не проверено, см. README, «Сомнения»).
-  (func $hexcod (export "hexcod")
-        (param $al i32) (param $es i32) (param $di i32) (result i32 i32)
-    (local $c i32)
-    (local.set $c
-      (i32.add (i32.and (local.get $al) (i32.const 0x0F)) (i32.const 0x30)))
-    (if (i32.gt_u (local.get $c) (i32.const 0x39))
-      (then (local.set $c (i32.add (local.get $c) (i32.const 7)))))
-    ;; STOSB
-    (i32.store8 (i32.add (local.get $es) (local.get $di)) (local.get $c))
-    ;; результаты: AL, DI+2 (STOSB: DI+1, затем INC DI — пропуск байта атрибута)
-    (local.get $c)
-    (i32.and (i32.add (local.get $di) (i32.const 2)) (i32.const 0xFFFF)))
+;; A47D HexByt PROC NEAR
+;; Вход: AL; ES:DI, DF.  Выход: AL, DI.  Флаги-выход: —.  Сохраняет: AH, CX.
+;; Метки: 0 — вход (переходов нет, диспетчер не нужен).
+(func $HexByt (export "HexByt") (param $L i32)
+  (call $push (global.get $cx))                                ;; PUSH CX
+  (call $push (global.get $ax))                                ;; PUSH AX
+  (call $set_cl (i32.const 4))                                 ;; MOV  CL,4
+  (call $set_al (i32.shr_u (call $al) (call $cl)))             ;; SHR  AL,CL (CL=4; флаги не читают)
+  (call $push (i32.const 0xA486)) (call $HexCod (i32.const 0)) ;; CALL HexCod
+  (global.set $ax (call $pop))                                 ;; POP  AX
+  (call $push (i32.const 0xA48A)) (call $HexCod (i32.const 0)) ;; CALL HexCod
+  (global.set $cx (call $pop))                                 ;; POP  CX
+  (call $ret (i32.const 0)) (return))                          ;; RET
 
-  ;; HexByt: байт AL -> две шестнадцатеричные цифры в ES:[DI] и ES:[DI+2].
-  ;;   PUSH CX / PUSH AX / MOV CL,4 / SHR AL,CL / CALL HexCod / POP AX /
-  ;;   CALL HexCod / POP CX
-  ;; Выход: AL (последний записанный символ), DI+4. AH и CX сохраняются.
-  (func $hexbyt (export "hexbyt")
-        (param $al i32) (param $es i32) (param $di i32) (result i32 i32)
-    ;; старший полубайт
-    (call $hexcod
-      (i32.shr_u (i32.and (local.get $al) (i32.const 0xFF)) (i32.const 4))
-      (local.get $es)
-      (local.get $di))
-    local.set $di   ;; DI после первой цифры
-    drop            ;; AL первой цифры затирается POP AX
-    ;; младший полубайт (HexCod сам делает AND AL,0Fh)
-    (call $hexcod (local.get $al) (local.get $es) (local.get $di)))
-
-  ;; TxtNum: десятичное число из строки ES:SI (тип байта — LODS ES:Byt).
-  ;; Чтение до первого символа вне '0'..'9'. Число насыщается на 65535.
-  ;; Вход: $es, $si. Выход: AX (число), SI (адрес первого символа вне числа),
-  ;; CF (1 — ни одной цифры). DX и BX сохраняются, DF сбрасывается (CLD) —
-  ;; этот побочный эффект не моделируется.
-  (func $txtnum (export "txtnum")
-        (param $es i32) (param $si i32) (result i32 i32 i32)
-    (local $orig i32) (local $bx i32) (local $b i32) (local $p i32)
-    ;; PUSH SI ; XOR BX,BX
-    (local.set $orig (local.get $si))
-    (block $done
-      (loop $next
-        ;; TxtNm1: LODS ES:Byt
-        (local.set $b
-          (i32.load8_u (i32.add (local.get $es) (local.get $si))))
-        (local.set $si
-          (i32.and (i32.add (local.get $si) (i32.const 1)) (i32.const 0xFFFF)))
-        ;; SUB AL,'0' ; JB TxtNm3
-        (br_if $done (i32.lt_u (local.get $b) (i32.const 0x30)))
-        (local.set $b (i32.sub (local.get $b) (i32.const 0x30)))
-        ;; CMP AL,9 ; JA TxtNm3
-        (br_if $done (i32.gt_u (local.get $b) (i32.const 9)))
-        ;; PUSH AX ; MOV AX,10 ; MUL BX ; MOV BX,AX ; POP AX
-        (local.set $p (i32.mul (local.get $bx) (i32.const 10)))
-        (local.set $bx (i32.and (local.get $p) (i32.const 0xFFFF)))
-        ;; OR DX,DX ; JNE TxtNm2   (DX = старшее слово произведения)
-        ;; TxtNm2: MOV BX,0FFFFh ; JMP TxtNm1
-        (if (i32.gt_u (local.get $p) (i32.const 0xFFFF))
-          (then
-            (local.set $bx (i32.const 0xFFFF))
-            (br $next)))
-        ;; CBW ; ADD BX,AX ; JNC TxtNm1   (при переносе — TxtNm2)
-        (local.set $bx (i32.add (local.get $bx) (local.get $b)))
-        (if (i32.gt_u (local.get $bx) (i32.const 0xFFFF))
-          (then (local.set $bx (i32.const 0xFFFF))))
-        (br $next)))
-    ;; TxtNm3: DEC SI
-    (local.set $si
-      (i32.and (i32.sub (local.get $si) (i32.const 1)) (i32.const 0xFFFF)))
-    ;; POP AX ; CMP AX,SI ; CMC ; MOV AX,BX ; POP BX ; POP DX ; RET
-    ;; CF после CMC = 1 тогда и только тогда, когда исходный SI >= SI (цифр не было)
-    (local.get $bx)
-    (local.get $si)
-    (i32.ge_u (local.get $orig) (local.get $si)))
-)
+;; A4B4 TxtNum PROC NEAR
+;; Вход: ES:SI.  Выход: AX, SI, DF=0.  Флаги-выход: CF (1 — нет цифр).  Сохраняет: BX, DX.
+;; Метки: 0 — вход, 1 — TxtNm1, 2 — TxtNm2, 3 — TxtNm3.
+(func $TxtNum (export "TxtNum") (param $L i32)
+  (local $a i32) (local $p i32)
+  (loop $next
+    (block $L3
+      (block $L2
+        (block $L1
+          (block $L0
+            (br_table $L0 $L1 $L2 $L3 (local.get $L)))
+          ;; --- 0: вход
+          (call $push (global.get $dx))                        ;; PUSH DX
+          (call $push (global.get $bx))                        ;; PUSH BX
+          (call $setf (i32.const 0x400) (i32.const 0))         ;; CLD
+          (call $push (global.get $si))                        ;; PUSH SI
+          (global.set $bx (i32.const 0)))                      ;; XOR  BX,BX (флаги не читают)
+        ;; --- 1: TxtNm1
+        (call $lodsb (global.get $es))                         ;; LODS ES:Byt
+        (local.set $a (call $al))
+        (call $set_al (i32.sub (local.get $a) (i32.const 0x30))) ;; SUB AL,'0'
+        (if (i32.lt_u (local.get $a) (i32.const 0x30))         ;; JB   TxtNm3
+          (then (local.set $L (i32.const 3)) (br $next)))
+        (if (i32.gt_u (call $al) (i32.const 9))                ;; CMP  AL,9
+          (then (local.set $L (i32.const 3)) (br $next)))      ;; JA   TxtNm3
+        (call $push (global.get $ax))                          ;; PUSH AX
+        (global.set $ax (i32.const 10))                        ;; MOV  AX,10
+        (local.set $p (i32.mul (global.get $ax) (global.get $bx))) ;; MUL BX
+        (global.set $ax (i32.and (local.get $p) (i32.const 0xFFFF)))
+        (global.set $dx (i32.shr_u (local.get $p) (i32.const 16)))
+        (global.set $bx (global.get $ax))                      ;; MOV  BX,AX
+        (global.set $ax (call $pop))                           ;; POP  AX
+        (if (i32.ne (global.get $dx) (i32.const 0))            ;; OR   DX,DX
+          (then (local.set $L (i32.const 2)) (br $next)))      ;; JNE  TxtNm2
+        (global.set $ax                                        ;; CBW
+          (i32.and (i32.extend8_s (call $al)) (i32.const 0xFFFF)))
+        (local.set $p (i32.add (global.get $bx) (global.get $ax))) ;; ADD BX,AX
+        (global.set $bx (i32.and (local.get $p) (i32.const 0xFFFF)))
+        (if (i32.le_u (local.get $p) (i32.const 0xFFFF))       ;; JNC  TxtNm1
+          (then (local.set $L (i32.const 1)) (br $next))))
+      ;; --- 2: TxtNm2
+      (global.set $bx (i32.const 0xFFFF))                      ;; MOV  BX,0FFFFh
+      (local.set $L (i32.const 1)) (br $next))                 ;; JMP  TxtNm1
+    ;; --- 3: TxtNm3
+    (global.set $si                                            ;; DEC  SI
+      (i32.and (i32.sub (global.get $si) (i32.const 1)) (i32.const 0xFFFF)))
+    (global.set $ax (call $pop))                               ;; POP  AX
+    (call $setf (i32.const 1)                                  ;; CMP  AX,SI / CMC: выход — только CF
+      (i32.ge_u (global.get $ax) (global.get $si)))
+    (global.set $ax (global.get $bx))                          ;; MOV  AX,BX
+    (global.set $bx (call $pop))                               ;; POP  BX
+    (global.set $dx (call $pop))                               ;; POP  DX
+    (call $ret (i32.const 0)) (return)))                       ;; RET
