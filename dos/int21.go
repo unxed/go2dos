@@ -788,6 +788,9 @@ func (d *DOS) int2F(e *hle.Env) error {
 		e.Idle()
 		c.SetAL(0)
 		return nil
+	case 0x1686: // DPMI presence check
+		c.R[cpu.AX] = 0 // no DPMI available
+		return nil
 	case 0x1600, 0x4300, 0x4A00, 0x1100, 0x1000, 0xB700, 0xAE00, 0x150B, 0x1500, 0x168F, 0x4F00, 0x4680:
 	}
 	e.Note("multiplex %04Xh: not installed", ax)
