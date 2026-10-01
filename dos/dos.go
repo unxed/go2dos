@@ -54,6 +54,9 @@ type Config struct {
 	// (crit.go). Without such drives no critical error ever occurs.
 	NotReady     map[byte]bool
 	WriteProtect map[byte]bool
+	// Clipboard is the text clipboard for WinOldAp server (INT 2Fh AX=17xxh).
+	// If nil, the clipboard is unavailable.
+	Clipboard Clipboard
 }
 
 // DOS is the kernel state.
@@ -95,13 +98,14 @@ type DOS struct {
 	cc        []ccState
 	ccStub    uint16              // ROM stub that continues a call after INT 23h
 	breakChar bool                // Ctrl-Break seen by INT 1Bh: ^C is waiting for DOS
+	clipboard Clipboard           // WinOldAp clipboard
 	finds     map[uint16]*lfnFind // open long-name searches (71xx filefind handles)
 	nextFind  uint16
 }
 
 // New installs the kernel.
 func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
-	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN}
+	d := &DOS{e: e, b: b, env: cfg.Env, breakFlag: 0, noLFN: cfg.NoLFN, clipboard: cfg.Clipboard}
 	fs, err := newFS(e, cfg)
 	if err != nil {
 		return nil, err

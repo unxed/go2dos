@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/unxed/go2dos/dos"
 	"github.com/unxed/go2dos/hle"
 	"github.com/unxed/go2dos/keys"
 	"github.com/unxed/go2dos/machine"
@@ -111,7 +112,7 @@ func run() int {
 	if interactive {
 		rend = newRenderer(os.Stdout)
 	}
-	cfg := machine.Config{Drives: drives, Codepage: *cpNum, Lenient: *lenient, TraceLog: traceW, TraceFilter: filter}
+	cfg := machine.Config{Drives: drives, Codepage: *cpNum, Lenient: *lenient, TraceLog: traceW, TraceFilter: filter, Clipboard: dos.NewInMemoryClipboard()}
 	for _, b := range strings.Split(*brk, ",") {
 		if b == "" {
 			continue

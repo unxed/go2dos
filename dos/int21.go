@@ -776,13 +776,20 @@ func isSep(c byte) bool {
 // unchanged, which is the "not installed" answer to installation checks.
 func (d *DOS) int2F(e *hle.Env) error {
 	c := e.CPU
-	switch c.R[cpu.AX] {
+	ax := c.R[cpu.AX]
+
+	// WinOldAp (INT 2Fh AX=17xxh) clipboard server.
+	if ax >= 0x1700 && ax <= 0x1709 {
+		return d.winoldap(e)
+	}
+
+	switch ax {
 	case 0x1680: // release time slice
 		e.Idle()
 		c.SetAL(0)
 		return nil
-	case 0x1600, 0x4300, 0x4A00, 0x1100, 0x1000, 0xB700, 0xAE00, 0x150B, 0x1500, 0x168F, 0x4F00, 0x4680, 0x1700:
+	case 0x1600, 0x4300, 0x4A00, 0x1100, 0x1000, 0xB700, 0xAE00, 0x150B, 0x1500, 0x168F, 0x4F00, 0x4680:
 	}
-	e.Note("multiplex %04Xh: not installed", c.R[cpu.AX])
+	e.Note("multiplex %04Xh: not installed", ax)
 	return nil
 }

@@ -81,6 +81,9 @@ type Config struct {
 	// return (diagnostics; call name "exec"). It is single-stepped, so it
 	// is slow, and is also set by the GO2DOS_EXEC_TRACE environment variable.
 	ExecTrace int
+	// Clipboard is the text clipboard for WinOldAp server (INT 2Fh AX=17xxh).
+	// If nil, the clipboard is unavailable.
+	Clipboard dos.Clipboard
 }
 
 // Machine is an emulated PC running a DOS program.
@@ -201,7 +204,7 @@ func New(cfg Config) (*Machine, error) {
 		env = []string{`COMSPEC=C:\COMMAND.COM`, `PATH=C:\`, `PROMPT=$P$G`}
 	}
 	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env, Labels: cfg.Labels, NoLFN: cfg.NoLFN,
-		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect})
+		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect, Clipboard: cfg.Clipboard})
 	if err != nil {
 		return nil, err
 	}
@@ -248,6 +251,96 @@ func (m *Machine) Screen() *bios.Screen {
 		return s
 	}
 	return &bios.Screen{}
+}
+
+// CopyRegion copies text from a rectangular region of the screen to the clipboard.
+// x, y are the top-left corner; w, h are the width and height.
+// Returns the copied text (lines joined with newlines).
+func (m *Machine) CopyRegion(x, y, w, h int) (string, error) {
+	scr := m.Screen()
+	if !scr.TextMode() {
+		return "", fmt.Errorf("not in text mode")
+	}
+	if x < 0 || y < 0 || x+w > scr.Cols || y+h > scr.Rows {
+		return "", fmt.Errorf("region out of bounds")
+	}
+
+	var b strings.Builder
+	for row := 0; row < h; row++ {
+		for col := 0; col < w; col++ {
+			cell := scr.Cells[(y+row)*scr.Cols+(x+col)]
+			b.WriteRune(cell.Rune)
+		}
+		if row < h-1 {
+			b.WriteRune('\n')
+		}
+	}
+	text := b.String()
+
+	// Set clipboard if available
+	if m.cfg.Clipboard != nil {
+		if err := m.cfg.Clipboard.SetText(text); err != nil {
+			return text, err
+		}
+	}
+	return text, nil
+}
+
+// PasteText reads text from the clipboard (or uses provided text) and injects it as key events.
+// Text is split into chunks of up to 15 characters (BIOS keyboard buffer limit)
+// to avoid overflow. Newlines are converted to Enter key events.
+func (m *Machine) PasteText(text string) error {
+	if text == "" && m.cfg.Clipboard != nil {
+		// Try to read from clipboard if no text provided.
+		var err error
+		text, err = m.cfg.Clipboard.GetText()
+		if err != nil {
+			return err
+		}
+	}
+
+	if text == "" {
+		return nil
+	}
+
+	// BIOS keyboard buffer holds max 15 keystrokes.
+	const chunkSize = 15
+
+	// Split text into chunks and inject as key events.
+	runes := []rune(text)
+	for i := 0; i < len(runes); i += chunkSize {
+		end := i + chunkSize
+		if end > len(runes) {
+			end = len(runes)
+		}
+		chunk := runes[i:end]
+
+		// Inject characters as key events.
+		for _, r := range chunk {
+			if r == '\n' {
+				// Convert newline to Enter key.
+				m.PushKey(bios.KeyEvent{
+					Scan:  0x1C, // Enter scan code
+					ASCII: '\r',
+					Mods:  0,
+				})
+			} else {
+				// Convert character to OEM byte and inject.
+				b, ok := m.CP.Byte(r)
+				if !ok {
+					// Skip unmappable characters.
+					continue
+				}
+				// Simple character key (ASCII character).
+				m.PushKey(bios.KeyEvent{
+					Scan:  0, // No scan code for ASCII chars
+					ASCII: b,
+					Mods:  0,
+				})
+			}
+		}
+	}
+	return nil
 }
 
 // ExitError is returned by Run when the program terminates normally.

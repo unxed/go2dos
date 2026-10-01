@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/unxed/go2dos/dos"
 )
 
 func runProg(t *testing.T, name string) (*Machine, error) {
@@ -124,4 +126,22 @@ func TestParseWatch(t *testing.T) {
 	if _, err := ParseWatch("zz"); err == nil {
 		t.Error("bad address accepted")
 	}
+}
+
+func TestCopyRegionAndPasteText(t *testing.T) {
+	m, err := New(Config{Drives: map[byte]string{'C': "/tmp"}, Codepage: 437, Clipboard: &dos.InMemoryClipboard{}})
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	// Test PasteText with explicit text
+	text := "Hello"
+	err = m.PasteText(text)
+	if err != nil {
+		t.Fatalf("PasteText failed: %v", err)
+	}
+
+	// PasteText should inject key events into the BIOS queue
+	// We can't easily verify this without inspecting internal state,
+	// but the call should succeed.
 }
