@@ -2,7 +2,8 @@
 
 Прочитай этот файл целиком, потом — `README.md`, `docs/DESIGN.md` (статус в
 §13), `docs/DOUBTS.md` (открытые расследования), `docs/UTF8NAMES.md`,
-`docs/WASI-BRIDGE.md`, `docs/DN-PLAN.md`, `docs/NC-TESTING.md`.
+`docs/WASI-BRIDGE.md`, `docs/TRANSLATION.md`, `docs/DN-PLAN.md`,
+`docs/NC-TESTING.md`.
 
 ## Правила работы с владельцем
 
@@ -102,6 +103,9 @@ ndisasm -b16 -o0xOFF -e$((0xSEG*16+0xOFF)) /tmp/go2dos-dump-*/memory.bin | head
    план W0–W7. Исследование R1–R5 можно делать в любой момент, реализацию —
    после UTF-8 имён (M10). UTF-8 имена мостом не заменять.
 9. go2dos под wasm-рантаймом и в браузере (M12).
+   Затем трансляция x86 → wasm (M13): один транслятор для JIT и AOT, откат
+   на интерпретатор, метаданные JWasm и покрытие как источники блоков
+   (`docs/TRANSLATION.md`). Бэкенд wasm в JWasm не писать.
 10. Дальние планы: Dos Navigator, Norton Commander (DESIGN §20). Для DN —
     сначала аудит кода Turbo Vision, переработка и двойная перепроверка, затем
     вынос TV в отдельный проект (`docs/DN-PLAN.md`). Код TV и DN не попадает
