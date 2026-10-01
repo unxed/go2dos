@@ -20,6 +20,7 @@ import (
 	"github.com/unxed/go2dos/cpu"
 	"github.com/unxed/go2dos/dos"
 	"github.com/unxed/go2dos/hle"
+	"github.com/unxed/go2dos/keys"
 	"github.com/unxed/go2dos/mem"
 )
 
@@ -275,6 +276,15 @@ func (m *Machine) PushKey(k bios.KeyEvent) {
 	m.recorded = append(m.recorded, recordedKey{time.Since(m.start), k})
 	m.recMu.Unlock()
 	m.keys <- k
+}
+
+// PasteText types text as keystrokes (keys.Paste). The BIOS releases them as
+// the program empties its 15-key buffer, so nothing is dropped; the call may
+// block while the machine's key queue is full.
+func (m *Machine) PasteText(text string) {
+	for _, k := range keys.Paste(text, m.CP) {
+		m.PushKey(k)
+	}
 }
 
 // Screen returns the latest text-screen snapshot; safe from any goroutine.

@@ -136,11 +136,18 @@ func (b *BIOS) PushKey(k KeyEvent) { b.kbdQueue = append(b.kbdQueue, k) }
 
 // PumpKeyboard moves the next queued event into port 60h and raises IRQ1.
 // It returns true if an interrupt was raised.
+//
+// A key is held back while the type-ahead buffer (15 keys) is full, so that a
+// burst from the host (a paste) is delivered in portions as the program reads,
+// not dropped; Ctrl-Break always passes (it clears the buffer).
 func (b *BIOS) PumpKeyboard() bool {
 	if b.inFlight != nil || len(b.kbdQueue) == 0 {
 		return false
 	}
 	k := b.kbdQueue[0]
+	if b.bufFull() && !(k.Scan == scanBreak && k.Mods&ModCtrl != 0) {
+		return false
+	}
 	b.inFlight = &k
 	b.release = false
 	b.port60 = k.Scan
@@ -199,6 +206,27 @@ func (b *BIOS) bufPut(w uint16) bool {
 	m.W16(0x400+uint32(tail), w)
 	m.W16(bdaKbdTail, next)
 	return true
+}
+
+// bufFull reports whether the type-ahead buffer has no free slot.
+func (b *BIOS) bufFull() bool {
+	m := b.e.Mem
+	next := m.R16(bdaKbdTail) + 2
+	if next >= m.R16(bdaKbdEnd) {
+		next = m.R16(bdaKbdStart)
+	}
+	return next == m.R16(bdaKbdHead)
+}
+
+// BufferedKeys returns how many keys wait in the type-ahead buffer (at most 15).
+func (b *BIOS) BufferedKeys() int {
+	m := b.e.Mem
+	head, tail := int(m.R16(bdaKbdHead)), int(m.R16(bdaKbdTail))
+	n := (tail - head) / 2
+	if n < 0 {
+		n += (int(m.R16(bdaKbdEnd)) - int(m.R16(bdaKbdStart))) / 2
+	}
+	return n
 }
 
 func (b *BIOS) bufPeek() (uint16, bool) {

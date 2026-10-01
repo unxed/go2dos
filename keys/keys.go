@@ -286,3 +286,38 @@ func Format(k bios.KeyEvent, page *cp.Codepage) string {
 	}
 	return fmt.Sprintf("<raw:%02X%02X>", k.Scan, k.ASCII)
 }
+
+// Paste turns text into keystrokes, as typed: line ends (CR LF, LF, CR) are
+// Enter, a tab is Tab, other control characters are dropped, a character that
+// the code page lacks is typed as '?'.
+func Paste(text string, page *cp.Codepage) []bios.KeyEvent {
+	var out []bios.KeyEvent
+	named := func(n string) {
+		if k, ok := Named(n, 0); ok {
+			out = append(out, k)
+		}
+	}
+	rs := []rune(text)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+		switch {
+		case r == '\r':
+			if i+1 < len(rs) && rs[i+1] == '\n' {
+				i++
+			}
+			named("Enter")
+		case r == '\n':
+			named("Enter")
+		case r == '\t':
+			named("Tab")
+		case r < 0x20 || r == 0x7F:
+		default:
+			k, ok := Char(r, page)
+			if !ok {
+				k, _ = Char('?', page)
+			}
+			out = append(out, k)
+		}
+	}
+	return out
+}

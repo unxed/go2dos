@@ -59,6 +59,13 @@ type Console interface {
 	Display(grid bool)
 }
 
+// ClipboardProvider is implemented by hosts that have a clipboard: Run gives
+// it to the machine, so that DOS programs reach it through WinOldAp
+// (INT 2Fh/17xx).
+type ClipboardProvider interface {
+	Clipboard() Clipboard
+}
+
 // Options are the flags common to all front ends.
 type Options struct {
 	Drives      map[byte]string
@@ -197,6 +204,9 @@ func Run(o *Options, args []string, host Host) int {
 	cfg.Watch = ws
 	if pipe {
 		cfg.Stdin, cfg.Stdout, cfg.Stderr = os.Stdin, os.Stdout, os.Stderr
+	}
+	if prov, ok := host.(ClipboardProvider); ok && !o.Headless {
+		cfg.Clipboard = prov.Clipboard()
 	}
 	console, _ := host.(Console)
 	display := o.Display
