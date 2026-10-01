@@ -36,7 +36,7 @@ jobs:
         env:
           GO2DOS_VC_DIR: ${{ github.workspace }}/.cache/vc  # go test runs in e2e/, so the path must be absolute
 
-  # NC 5.0 и DN 1.51 в репозиторий не входят: tools/fetch-nc.sh, tools/fetch-dn.sh
+  # NC 5.51 и DN 1.51 в репозиторий не входят: tools/fetch-nc.sh, tools/fetch-dn.sh
   # скачивают их с проверкой SHA-256. Если источник недоступен (код 3), шаги
   # честно пропускаются: переменные GO2DOS_NC_DIR/GO2DOS_DN_DIR не задаются, тесты
   # пишут Skip, трассы не снимаются. Несовпадение SHA-256 - красный шаг.
@@ -52,13 +52,19 @@ jobs:
           path: |
             .cache/nc
             .cache/dn
-          key: nc-5.00-dn-1.51-v1
-      - name: Скачать NC 5.0
+          key: nc-5.51-dn-1.51-v1
+      - name: Инструменты распаковки (unrar для RAR, 7z для образа дискеты)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unrar
+          command -v 7z || sudo apt-get install -y -qq 7zip || sudo apt-get install -y -qq p7zip-full
+          command -v unrar && command -v 7z
+      - name: Скачать NC 5.51
         id: nc
         run: |
           rc=0; sh tools/fetch-nc.sh .cache/nc || rc=$?
-          if [ $rc -eq 0 ]; then echo "GO2DOS_NC_DIR=$GITHUB_WORKSPACE/.cache/nc/5.00" >> "$GITHUB_ENV"
-          elif [ $rc -eq 3 ]; then echo "::warning::NC 5.0 недоступен, тесты NC будут пропущены"
+          if [ $rc -eq 0 ]; then echo "GO2DOS_NC_DIR=$GITHUB_WORKSPACE/.cache/nc/5.51" >> "$GITHUB_ENV"
+          elif [ $rc -eq 3 ]; then echo "::warning::NC 5.51 недоступен, тесты NC будут пропущены"
           else exit $rc; fi
       - name: Скачать DN 1.51
         id: dn

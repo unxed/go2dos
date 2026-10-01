@@ -5,8 +5,30 @@
 запускать файловые менеджеры для DOS (Norton Commander, Volkov Commander) и
 отдавать хосту их текст, буфер обмена и имена файлов.
 
-Состояние: Volkov Commander 4.05 и 4.99.09 работают; подробности и план — в
-[docs/DESIGN.md](docs/DESIGN.md), открытые вопросы — в
+Состояние на 2026-10-01 (только то, что видно в CI и в дереве `main`):
+
+- **Volkov Commander 4.05 и 4.99.09.** CI (задание `e2e-vc`) запускает их в
+  go2dos и проверяет панели и выход (`e2e/vc_test.go`), командную строку,
+  запуск команд хоста (`e2e/vc_shell_test.go`) и, для 4.99.09, длинные имена.
+  VC также собирается свободными средствами (задание `build-vc`,
+  [docs/VC-BUILD.md](docs/VC-BUILD.md)).
+- **Ядро 8086:** задание `cpu-singlestep` прогоняет SingleStepTests 8088.
+- **Norton Commander 5.51** (английский, скачивается скриптом): без `-lenient`
+  останавливается на `INT 10h AH=FFh` (не поддержан); с `-lenient` доходит до
+  панелей и меню и выходит кодом 0 (219 таких вызовов). Проверено только
+  запуском, показом панели, меню `F9` и выходом `F10`; остальное не проверялось.
+- **Dos Navigator 1.51** (готовый бинарник, скачивается скриптом): без
+  `-lenient` останавливается на `INT 15h AH=10h`; с `-lenient` рисует панели и
+  меню (ещё один неподдерживаемый вызов, `INT 10h AH=1Ch`). Остальное не
+  проверялось.
+  Подробности, ссылки на прогоны CI и список неподдерживаемого —
+  [docs/NC-TESTING.md](docs/NC-TESTING.md).
+- В `main` сейчас нет (проверено по дереву): режима `pipe`, моста DOS → WASI,
+  кода графических режимов экрана; это открытые задачи ([docs/TASKS.md](docs/TASKS.md)).
+  Пометки «сделано» в старых документах относятся к веткам и не гарантируют
+  наличия кода в `main`; верить стоит CI и коду.
+
+План — в [docs/DESIGN.md](docs/DESIGN.md), открытые вопросы — в
 [docs/DOUBTS.md](docs/DOUBTS.md).
 
 ## Запуск
@@ -58,12 +80,18 @@ fmt.Println(m.Screen().Text())  // текст экрана в UTF-8
 
 ```sh
 go test ./...
-sh tools/fetch-vc.sh .cache/vc && GO2DOS_VC_DIR=.cache/vc go test ./e2e/
-sh tools/fetch-sst.sh .cache/sst && GO2DOS_SST_DIR=.cache/sst go test ./cpu/
+sh tools/fetch-vc.sh .cache/vc && GO2DOS_VC_DIR=$PWD/.cache/vc go test ./e2e/
+sh tools/fetch-sst.sh .cache/sst && GO2DOS_SST_DIR=$PWD/.cache/sst go test ./cpu/
 ```
 
-Norton Commander в тестах не используется; как проверить его самому —
-[docs/NC-TESTING.md](docs/NC-TESTING.md).
+Двоичные файлы чужих программ в репозитории не лежат. Их скачивают скрипты с
+проверкой SHA-256: `tools/fetch-vc.sh` (Volkov Commander, BSD-2),
+`tools/fetch-nc.sh` (Norton Commander 5.51, `.cache/nc/5.51`; нужны `unrar` и
+`7z`), `tools/fetch-dn.sh` (Dos Navigator 1.51, `.cache/dn/1.51`). Переменные
+`GO2DOS_NC_DIR` и `GO2DOS_DN_DIR` задают каталоги для e2e-тестов (тестов NC и DN
+в `e2e/` пока нет); `tools/trace-nc-dn.sh` снимает трассы запуска (CI,
+задание `e2e-nc-dn`, артефакт `nc-dn-traces`). Если источник недоступен,
+скрипт завершается кодом 3 и CI пропускает эти шаги, а не падает.
 
 ## Документы
 
@@ -76,10 +104,10 @@ Norton Commander в тестах не используется; как пров�
 - [DOUBTS.md](docs/DOUBTS.md) — сомнения и расследования
 - [UTF8NAMES.md](docs/UTF8NAMES.md) — API UTF-8 имён файлов для DOS (черновик)
 - [SCREEN.md](docs/SCREEN.md) — окно любого размера, консоль хоста, длинные строки
-- [HOSTEXEC.md](docs/HOSTEXEC.md) — команды хоста из DOS: оверлейный режим
+- [HOSTEXEC.md](docs/HOSTEXEC.md), [HOSTEXEC-API.md](docs/HOSTEXEC-API.md) — команды хоста из DOS: оверлейный режим
 - [WASI-BRIDGE.md](docs/WASI-BRIDGE.md) — мост DOS → WASI: решение и план
 - [TRANSLATION.md](docs/TRANSLATION.md) — трансляция x86 → wasm (JIT и AOT)
 - [DN-PLAN.md](docs/DN-PLAN.md) — Dos Navigator: аудит Turbo Vision, переработка, отдельная TV
-- [NC-TESTING.md](docs/NC-TESTING.md) — проверка Norton Commander
+- [NC-TESTING.md](docs/NC-TESTING.md) — проверка Norton Commander: источники, SHA-256, наблюдения NC 5.51 и DN 1.51
 - [NC-REQUIREMENTS.md](docs/NC-REQUIREMENTS.md) — что нужно NC от BIOS/DOS
-- [DN-RESEARCH.md](docs/DN-RESEARCH.md), [HX-RESEARCH.md](docs/HX-RESEARCH.md), [WASI-RESEARCH.md](docs/WASI-RESEARCH.md) — исследования
+- [DN-RESEARCH.md](docs/DN-RESEARCH.md), [HX-RESEARCH.md](docs/HX-RESEARCH.md) (в т. ч. лицензия HX: изменённый HX не распространяем), [WASI-RESEARCH.md](docs/WASI-RESEARCH.md) — исследования
