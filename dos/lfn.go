@@ -456,6 +456,10 @@ func (d *DOS) lfn(e *hle.Env) error {
 		case r.exists:
 			d.fail(e, errAccess)
 		default:
+			if f.wp(r.host) {
+				d.fail(e, errAccess)
+				return nil
+			}
 			f.invalidate()
 			if err := os.Mkdir(r.host, 0o777); err != nil {
 				d.fail(e, errAccess)
@@ -473,6 +477,9 @@ func (d *DOS) lfn(e *hle.Env) error {
 			} else if cwd, _, ec := f.resolve(r.drive, f.cwd[r.drive], false); ec == 0 && cwd == r.host {
 				errc = errCurDir
 			}
+		}
+		if errc == 0 && f.wp(r.host) {
+			errc = errAccess
 		}
 		if errc == 0 {
 			f.invalidate()
@@ -569,6 +576,9 @@ func (d *DOS) lfnDelete(e *hle.Env) uint16 {
 		if st, err := os.Stat(r.host); err == nil && st.IsDir() {
 			return errAccess
 		}
+		if d.fs.wp(r.host) {
+			return errAccess
+		}
 		d.fs.invalidate()
 		return osErr(os.Remove(r.host))
 	}
@@ -589,6 +599,9 @@ func (d *DOS) lfnDelete(e *hle.Env) uint16 {
 	for _, m := range list {
 		if m.attr&(attrDir|attrLabel) != 0 {
 			continue
+		}
+		if d.fs.wp(r.host) {
+			return errAccess
 		}
 		d.fs.invalidate()
 		if err := os.Remove(filepath.Join(r.host, m.long)); err != nil {
@@ -634,6 +647,9 @@ func (d *DOS) lfnRename(e *hle.Env) uint16 {
 		return errAccess
 	}
 	if to.exists && !foldEq(filepath.Clean(from.host), filepath.Clean(to.host)) {
+		return errAccess
+	}
+	if d.fs.wp(from.host) || d.fs.wp(to.host) {
 		return errAccess
 	}
 	d.fs.invalidate()
@@ -782,6 +798,10 @@ func (d *DOS) lfnAttr(e *hle.Env) error {
 		} else {
 			mode |= 0o200
 		}
+		if d.fs.wp(r.host) {
+			d.fail(e, errAccess)
+			return nil
+		}
 		if err := os.Chmod(r.host, mode); err != nil {
 			d.fail(e, errAccess)
 			return nil
@@ -792,6 +812,10 @@ func (d *DOS) lfnAttr(e *hle.Env) error {
 		c.R[cpu.AX], c.R[cpu.DX] = uint16(sz), uint16(sz>>16)
 	case 3:
 		t := fromDOSTime(c.R[cpu.CX], c.R[cpu.DI])
+		if d.fs.wp(r.host) {
+			d.fail(e, errAccess)
+			return nil
+		}
 		if err := os.Chtimes(r.host, t, t); err != nil {
 			d.fail(e, errAccess)
 			return nil

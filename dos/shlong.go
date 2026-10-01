@@ -114,6 +114,9 @@ func (d *DOS) shMkdir(arg string) uint16 {
 	if r.exists || r.isRoot {
 		return errAccess
 	}
+	if d.fs.wp(r.host) {
+		return errAccess
+	}
 	d.fs.invalidate()
 	return osErr(os.Mkdir(r.host, 0o777))
 }
@@ -137,6 +140,9 @@ func (d *DOS) shRename(from, to string) uint16 {
 		return errc
 	}
 	if dst.exists && !foldEq(filepath.Clean(src.host), filepath.Clean(dst.host)) {
+		return errAccess
+	}
+	if d.fs.wp(src.host) || d.fs.wp(dst.host) {
 		return errAccess
 	}
 	d.fs.invalidate()

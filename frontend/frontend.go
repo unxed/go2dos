@@ -20,6 +20,7 @@ import (
 
 	"github.com/unxed/go2dos/bios"
 	"github.com/unxed/go2dos/cp"
+	"github.com/unxed/go2dos/dos"
 	"github.com/unxed/go2dos/hle"
 	"github.com/unxed/go2dos/keys"
 	"github.com/unxed/go2dos/machine"
@@ -69,6 +70,8 @@ type ClipboardProvider interface {
 // Options are the flags common to all front ends.
 type Options struct {
 	Drives      map[byte]string
+	Confine     bool
+	ReadOnly    string // -ro: drives DOS may not change ("C", "CD", "all")
 	Codepage    int
 	Trace       string
 	TraceFilter string
@@ -110,6 +113,8 @@ func (d driveFlags) Set(s string) error {
 func RegisterFlags(fs *flag.FlagSet, terminal bool) *Options {
 	o := &Options{Drives: map[byte]string{}}
 	fs.Var(driveFlags(o.Drives), "drive", "map a drive: LETTER=DIR (repeatable)")
+	fs.StringVar(&o.ReadOnly, "ro", "", "make drives read-only for DOS: letters (C or CD or C,D) or all; deleting, writing, renaming are refused")
+	fs.BoolVar(&o.Confine, "confine", false, "hide symbolic links that lead out of a drive directory (nothing outside the mapped directories can be reached through links)")
 	fs.IntVar(&o.Codepage, "cp", 0, "DOS code page (0 = from the host locale)")
 	fs.StringVar(&o.Trace, "trace", "", "write every BIOS/DOS call as JSON lines to `FILE`")
 	fs.StringVar(&o.TraceFilter, "trace-filter", "", "only trace calls starting with these comma-separated names (int21,int10,...)")
@@ -176,6 +181,14 @@ func Run(o *Options, args []string, host Host) int {
 	}
 
 	cfg := machine.Config{Drives: drives, Codepage: o.Codepage, Lenient: o.Lenient, NoLFN: o.NoLFN, HostExec: o.HostExec, TraceLog: traceW, TraceFilter: filter}
+	cfg.Confine = o.Confine
+	if o.ReadOnly != "" {
+		ro, err := dos.ParseReadOnly(o.ReadOnly)
+		if err != nil {
+			return Fail(err)
+		}
+		cfg.ReadOnly = ro
+	}
 	if o.Size != "" {
 		w, h, ok := strings.Cut(o.Size, "x")
 		cols, err1 := strconv.Atoi(w)

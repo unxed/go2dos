@@ -518,6 +518,10 @@ func (d *DOS) attrib(e *hle.Env) {
 		} else {
 			mode |= 0o200
 		}
+		if d.fs.wp(host) {
+			d.fail(e, errAccess)
+			return
+		}
 		if err := os.Chmod(host, mode); err != nil {
 			d.fail(e, errAccess)
 			return
@@ -670,6 +674,10 @@ func (d *DOS) fileTime(e *hle.Env) {
 		if of.f != nil {
 			t := fromDOSTime(c.R[cpu.CX], c.R[cpu.DX])
 			of.f.Sync()
+			if d.fs.wp(of.host) {
+				d.fail(e, errAccess)
+				return
+			}
 			if err := os.Chtimes(of.host, t, t); err != nil {
 				d.fail(e, errAccess)
 				return

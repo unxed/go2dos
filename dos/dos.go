@@ -38,9 +38,11 @@ const (
 
 // Config configures the kernel.
 type Config struct {
-	Drives  map[byte]string // drive letter (A-Z) -> host directory
-	Current byte            // current drive letter
-	Env     []string        // environment variables (NAME=VALUE)
+	Drives   map[byte]string // drive letter (A-Z) -> host directory
+	Confine  bool            // hide symbolic links that lead out of the drive (fsro.go)
+	ReadOnly map[byte]bool   // drives that DOS may not change (fsro.go)
+	Current  byte            // current drive letter
+	Env      []string        // environment variables (NAME=VALUE)
 	// Labels maps drive letters to volume labels (up to 11 characters).
 	// A host directory has no label, so without an entry the drive reports
 	// "NO NAME" and FindFirst with attribute 08h finds nothing.
@@ -138,9 +140,16 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 		return nil, err
 	}
 	d.fs = fs
+	fs.confine = cfg.Confine
 	for l := range cfg.NotReady {
 		if l >= 'A' && l <= 'Z' && cfg.NotReady[l] {
 			d.faults[l-'A'].notReady, d.anyFault = true, true
+		}
+	}
+	for l, on := range cfg.ReadOnly { // -ro: write-protect for DOS (INT 24h) and a hard stop in fsro.go
+		if on && l >= 'A' && l <= 'Z' && d.fs.drives[l-'A'] != "" {
+			d.fs.ro[l-'A'] = true
+			d.faults[l-'A'].writeProtect, d.anyFault = true, true
 		}
 	}
 	for l := range cfg.WriteProtect {

@@ -38,6 +38,10 @@ type Config struct {
 	// Labels maps drive letters to volume labels (up to 11 characters); a
 	// host directory has none, so by default drives report "NO NAME".
 	Labels map[byte]string
+	// ReadOnly lists drives that DOS may not change (-ro; dos/fsro.go).
+	ReadOnly map[byte]bool
+	// Confine hides symbolic links that lead out of a drive (-confine).
+	Confine bool
 	// Env is the DOS environment (NAME=VALUE).
 	Env []string
 	// Now returns the wall-clock time (default time.Now).
@@ -235,7 +239,7 @@ func New(cfg Config) (*Machine, error) {
 	if env == nil {
 		env = []string{`COMSPEC=C:\COMMAND.COM`, `PATH=C:\`, `PROMPT=$P$G`}
 	}
-	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env, Labels: cfg.Labels, NoLFN: cfg.NoLFN,
+	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, ReadOnly: cfg.ReadOnly, Confine: cfg.Confine, Current: cfg.Drive, Env: env, Labels: cfg.Labels, NoLFN: cfg.NoLFN,
 		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect, Clipboard: cfg.Clipboard, HostExec: cfg.HostExec,
 		Stdin: cfg.Stdin, Stdout: cfg.Stdout, Stderr: cfg.Stderr})
 	if err != nil {

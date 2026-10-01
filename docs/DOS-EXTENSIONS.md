@@ -220,6 +220,10 @@ Behaviour that a program may rely on, added to a plain DOS (see `docs/DOUBTS.md`
 | `INT 23h`, `INT 24h`, `INT 1Bh` | Ctrl-C and critical error handling as in DOS (`dos/crit.go`) |
 | after `EXEC` (`4B00h`) | the parent gets its own registers back, as `restore_world` does in MS-DOS 4.0 (needed by Volkov Commander 4.99.09) |
 
+Host file system safety (not an interface; `-ro`, `-confine`, stable `~N` short names):
+[DATA-SAFETY.md](DATA-SAFETY.md) (Russian). The 8.3 name `NAME~N.EXT` that a program has seen keeps
+meaning the same file during a run, also when files appear or disappear.
+
 ## 11. Built-in `COMMAND.COM`
 
 Status: implemented (`dos/shell.go`; tests `e2e/vc_shell_test.go`). When a program runs `COMMAND.COM` (typically through

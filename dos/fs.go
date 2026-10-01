@@ -86,10 +86,20 @@ type fsys struct {
 	// names is the registry of aliases for host names that the code page
 	// cannot hold (names.go); it lives as long as the machine.
 	names *nameReg
+	// tails remembers the ~N short names given in each directory (key as in the
+	// cache): a number is never reused for another name during the run, so the
+	// 8.3 name that a program holds keeps meaning the same file when other files
+	// appear or disappear (docs/DATA-SAFETY.md, R3).
+	tails map[string]map[string]string
+	// ro marks the drives that DOS may not change (-ro, docs/DATA-SAFETY.md).
+	ro [26]bool
+	// confine hides symbolic links whose target is outside the drive root (-confine).
+	confine  bool
+	realRoot [26]string
 }
 
 func newFS(e *hle.Env, cfg Config) (*fsys, error) {
-	f := &fsys{e: e, cache: map[string]*dirIndex{}, dirIDs: map[string]uint16{}}
+	f := &fsys{e: e, cache: map[string]*dirIndex{}, dirIDs: map[string]uint16{}, tails: map[string]map[string]string{}}
 	if len(cfg.Drives) == 0 {
 		return nil, fmt.Errorf("no drives configured")
 	}
@@ -238,6 +248,9 @@ func (f *fsys) index(hostDir string) (*dirIndex, uint16) {
 		if err != nil {
 			continue
 		}
+		if f.confine && de.Type()&fs.ModeSymlink != 0 && !f.insideRoot(hostDir, de.Name()) {
+			continue
+		}
 		enc, ok := f.encodeName(de.Name())
 		up := make([]byte, len(enc))
 		for i, c := range enc {
@@ -267,6 +280,11 @@ func (f *fsys) index(hostDir string) (*dirIndex, uint16) {
 		}
 		later = rest
 	}
+	tails := f.tails[key]
+	if tails == nil {
+		tails = map[string]string{}
+		f.tails[key] = tails
+	}
 	for _, p := range later {
 		base, ext := p.up, []byte(nil)
 		if i := strings.LastIndexByte(string(p.up), '.'); i > 0 {
@@ -287,10 +305,15 @@ func (f *fsys) index(hostDir string) (*dirIndex, uint16) {
 			if len(x) > 0 {
 				name += "." + string(x)
 			}
-			if _, dup := ix.byDOS[name]; !dup {
-				ix.add(dirEntry{dos: name, host: p.host, info: p.info})
-				break
+			if _, dup := ix.byDOS[name]; dup {
+				continue
 			}
+			if owner, ok := tails[name]; ok && owner != p.host {
+				continue // given to another file earlier in this run
+			}
+			tails[name] = p.host
+			ix.add(dirEntry{dos: name, host: p.host, info: p.info})
+			break
 		}
 	}
 	f.cache[key] = ix

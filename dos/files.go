@@ -194,6 +194,9 @@ func (d *DOS) openHost(drive int, dp, host string, exists bool, mode byte, creat
 			flag |= os.O_TRUNC
 		}
 	}
+	if flag != os.O_RDONLY && d.fs.wp(host) {
+		return 0, errAccess
+	}
 	f, err := os.OpenFile(host, flag, 0o666)
 	if err != nil && !create && flag != os.O_RDONLY && errors.Is(err, fs.ErrPermission) {
 		return 0, errAccess
@@ -426,6 +429,9 @@ func (d *DOS) mkdir(path []byte) uint16 {
 	if exists {
 		return errAccess
 	}
+	if d.fs.wp(host) {
+		return errAccess
+	}
 	d.fs.invalidate()
 	if err := os.Mkdir(host, 0o777); err != nil {
 		return errAccess
@@ -444,6 +450,9 @@ func (d *DOS) rmdir(path []byte) uint16 {
 	host, _, errc := d.fs.resolve(drive, dp, false)
 	if errc != 0 {
 		return errPathNotFound
+	}
+	if d.fs.wp(host) {
+		return errAccess
 	}
 	d.fs.invalidate()
 	if err := os.Remove(host); err != nil {
@@ -480,6 +489,9 @@ func (d *DOS) unlink(path []byte) uint16 {
 	if st, err := os.Stat(host); err == nil && st.IsDir() {
 		return errAccess
 	}
+	if d.fs.wp(host) {
+		return errAccess
+	}
 	d.fs.invalidate()
 	return osErr(os.Remove(host))
 }
@@ -505,6 +517,9 @@ func (d *DOS) rename(from, to []byte) uint16 {
 		return errPathNotFound
 	}
 	if exists && !strings.EqualFold(filepath.Clean(h1), filepath.Clean(h2)) {
+		return errAccess
+	}
+	if d.fs.wp(h1) || d.fs.wp(h2) {
 		return errAccess
 	}
 	d.fs.invalidate()

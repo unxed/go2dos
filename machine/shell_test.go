@@ -276,3 +276,33 @@ func TestShellClsClearsConsole(t *testing.T) {
 		t.Errorf("terminal cleared %d times, want 1", n)
 	}
 }
+
+// -ro: nothing that the shell does changes the drive (the backstop of dos/fsro.go).
+func TestShellReadOnlyDrive(t *testing.T) {
+	bat := "@echo off\r\n" +
+		"copy hello.com copy.com\r\n" +
+		"del hello.com\r\n" +
+		"ren mark.com other.com\r\n" +
+		"md newdir\r\n" +
+		"rd sub\r\n" +
+		"echo x > out.txt\r\n" +
+		"echo y >> keep.txt\r\n" +
+		"type keep.txt\r\n"
+	_, text, dir := runShellCfg(t, Config{ReadOnly: map[byte]bool{'C': true}}, " /C T7.BAT", map[string]string{"T7.BAT": bat, "keep.txt": "kept\r\n"})
+	for _, gone := range []string{"copy.com", "other.com", "newdir", "out.txt"} {
+		if _, err := os.Stat(filepath.Join(dir, gone)); err == nil {
+			t.Errorf("%s was created", gone)
+		}
+	}
+	for _, kept := range []string{"hello.com", "mark.com", "SUB"} {
+		if _, err := os.Stat(filepath.Join(dir, kept)); err != nil {
+			t.Errorf("%s is gone: %v", kept, err)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "keep.txt")); string(b) != "kept\r\n" {
+		t.Errorf("keep.txt = %q", b)
+	}
+	if !strings.Contains(text, "kept") {
+		t.Errorf("reading must still work:\n%s", text)
+	}
+}
