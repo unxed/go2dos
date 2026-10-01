@@ -58,10 +58,40 @@ type Video struct {
 	// zero means the standard 80x25 (SetTextSize).
 	cfgCols, cfgRows int
 
+	// wraps marks rows that the teletype continued on the next row at the
+	// right edge, per page (Snapshot.Wrapped, Screen.Text).
+	wraps [8][256]wrapMark
+
 	// Stream, if set, receives every character written through the
 	// teletype (the stream channel, as opposed to direct video writes).
 	Stream    func(ch byte)
 	hleWrites uint32 // video page writes made by the teletype itself
+}
+
+// wrapMark says that a row continues on the next one. It carries the sum of
+// the row as it was marked: a row that is written to later (the program draws
+// over it, or a scroll by a program moves other text into it) no longer
+// matches its sum and stops being a continuation. That is the "reset on
+// overwrite" rule without watching every write to video memory.
+type wrapMark struct {
+	set bool
+	sum uint32
+}
+
+// rowSum is the FNV-1a sum of the cells of a row.
+func (v *Video) rowSum(page byte, row int) uint32 {
+	h := uint32(2166136261)
+	a := v.cellAddr(page, row, 0)
+	for i := 0; i < v.cols()*2; i++ {
+		h = (h ^ uint32(v.e.Mem.R8(a+uint32(i)))) * 16777619
+	}
+	return h
+}
+
+func (v *Video) markWrap(page byte, row int) {
+	if row >= 0 && row < 256 {
+		v.wraps[page&7][row] = wrapMark{true, v.rowSum(page, row)}
+	}
 }
 
 // DirectWrites counts writes to video memory not made by the teletype:
@@ -163,6 +193,7 @@ func (v *Video) setMode(m byte, clear bool) error {
 		v.setCursor(p, 0, 0)
 	}
 	if clear {
+		v.wraps = [8][256]wrapMark{}
 		for a := v.base(); a < v.base()+0x10000 && a < videoEnd; a += 2 {
 			v.e.Mem.W16(a, 0x0720)
 		}
@@ -189,6 +220,23 @@ func (v *Video) scroll(up bool, lines, attr byte, top, left, bottom, right int) 
 	}
 	page := v.b8(bdaActivePage)
 	blank := uint16(attr)<<8 | 0x20
+	if left == 0 && right == cols-1 { // whole rows: their continuation marks move with them
+		w := &v.wraps[page&7]
+		for i := 0; i < h; i++ {
+			row, src := top+i, top+i+n
+			if !up {
+				row, src = bottom-i, bottom-i-n
+			}
+			if row < 0 || row > 255 {
+				continue
+			}
+			if (up && src <= bottom) || (!up && src >= top) {
+				w[row] = w[src]
+			} else {
+				w[row] = wrapMark{}
+			}
+		}
+	}
 	for i := 0; i < h; i++ {
 		row := top + i
 		src := row + n
@@ -236,6 +284,7 @@ func (v *Video) teletype(ch byte, page byte) {
 		v.e.Mem.W8(a, ch)
 		col++
 		if col >= cols {
+			v.markWrap(page, row)
 			col = 0
 			row++
 		}
@@ -424,6 +473,9 @@ type Screen struct {
 	CursorY       int
 	CursorVisible bool
 	Version       uint32 // changes whenever video memory or CRTC state changes
+	// Wrapped[y] is true if row y was continued on row y+1 by the teletype
+	// (it wrapped at the right edge) and neither row was written to since.
+	Wrapped []bool
 }
 
 // TextMode reports whether the snapshot holds text.
@@ -438,8 +490,34 @@ func (s *Screen) Line(y int) string {
 	return strings.TrimRight(b.String(), " ")
 }
 
-// Text returns the whole screen, one line per row.
+// rowText returns row y with its trailing blanks.
+func (s *Screen) rowText(y int) string {
+	var b strings.Builder
+	for x := 0; x < s.Cols; x++ {
+		b.WriteRune(s.Cells[y*s.Cols+x].Rune)
+	}
+	return b.String()
+}
+
+// Text returns the screen as text, one line per row; a row that the teletype
+// continued on the next one is joined with it, as a terminal emulator copies
+// a wrapped line. TextRows has one line per row without joining.
 func (s *Screen) Text() string {
+	var lines []string
+	cur := ""
+	for y := 0; y < s.Rows; y++ {
+		cur += s.rowText(y)
+		if y < len(s.Wrapped) && s.Wrapped[y] && y+1 < s.Rows {
+			continue
+		}
+		lines = append(lines, strings.TrimRight(cur, " "))
+		cur = ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+// TextRows returns the screen with one line per row, wrapped or not.
+func (s *Screen) TextRows() string {
 	lines := make([]string, s.Rows)
 	for y := range lines {
 		lines[y] = s.Line(y)
@@ -478,6 +556,13 @@ func (v *Video) Snapshot() *Screen {
 		w := v.e.Mem.R16(base + uint32(i*2))
 		ch := byte(w)
 		s.Cells[i] = Cell{Ch: ch, Attr: byte(w >> 8), Rune: v.e.CP.ScreenRune(ch)}
+	}
+	page := v.b8(bdaActivePage)
+	s.Wrapped = make([]bool, s.Rows)
+	for y := 0; y < s.Rows && y < 256; y++ {
+		if m := v.wraps[page&7][y]; m.set && m.sum == v.rowSum(page, y) {
+			s.Wrapped[y] = true
+		}
 	}
 	pos := int(uint32(v.crtc[0x0E])<<8|uint32(v.crtc[0x0F])) - int(start)
 	if pos >= 0 && pos < s.Cols*s.Rows {
