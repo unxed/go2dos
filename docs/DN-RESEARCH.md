@@ -305,3 +305,10 @@ unzip dn151src.zip -d /tmp/dn151
 grep -an "Borland" /tmp/dn151/*.PAS     # 5 файлов, строка 51
 curl -LO https://dickgrune.com/Programs/similarity_tester/sim.zip
 ```
+
+## Готовый бинарник DN 1.51 и первый запуск в go2dos
+
+Дистрибутив `dn151.zip` (RIT Research Labs, 1999-04-19; SHA-256, состав и
+источник — в `docs/NC-TESTING.md`, раздел «Копии NC и DN для CI»), скачивается
+`tools/fetch-dn.sh`. Что наблюдалось при запуске `DN.COM` в go2dos: там же
+(стоп на `INT 15h AH=10h`; с `-lenient` панели и меню рисуются).
