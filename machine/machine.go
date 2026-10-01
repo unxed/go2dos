@@ -57,6 +57,11 @@ type Config struct {
 	// NoLFN turns the long-name API (INT 21h AH=71h) off: every call answers
 	// AX=7100h, CF=1 ("not supported"), and 71A0h does not announce LFN.
 	NoLFN bool
+	// NotReady and WriteProtect list drives that behave like a floppy drive
+	// with no disk or with a write-protected disk: DOS calls INT 24h
+	// (critical error) when a program uses them.
+	NotReady     map[byte]bool
+	WriteProtect map[byte]bool
 	// Watch lists linear addresses whose writes are logged to the trace
 	// together with the writing instruction (diagnostics).
 	Watch []uint32
@@ -170,7 +175,8 @@ func New(cfg Config) (*Machine, error) {
 	if env == nil {
 		env = []string{`COMSPEC=C:\COMMAND.COM`, `PATH=C:\`, `PROMPT=$P$G`}
 	}
-	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env, Labels: cfg.Labels, NoLFN: cfg.NoLFN})
+	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env, Labels: cfg.Labels, NoLFN: cfg.NoLFN,
+		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect})
 	if err != nil {
 		return nil, err
 	}

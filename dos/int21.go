@@ -33,6 +33,12 @@ func (d *DOS) str(seg, off uint16) []byte { return d.e.Mem.ASCIIZ(mem.Lin(seg, o
 func (d *DOS) int21(e *hle.Env) error {
 	c := e.CPU
 	ah := c.AH()
+	if d.breakFlag != 0 && ah > 0x0C && d.statChk(e) { // BREAK ON: ^C is checked on every call
+		return nil
+	}
+	if d.guard(e) {
+		return nil
+	}
 	switch {
 	case ah >= 0x01 && ah <= 0x0C:
 		return d.charFunc(e, ah)

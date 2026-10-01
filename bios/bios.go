@@ -17,6 +17,9 @@ const (
 	ModAlt    = 1 << 3
 )
 
+// scanBreak is the scan code of the Break key (Ctrl-Pause).
+const scanBreak = 0x46
+
 // KeyEvent is one keystroke as the BIOS sees it.
 type KeyEvent struct {
 	Scan  byte // set-1 make code
@@ -155,7 +158,17 @@ func (b *BIOS) int09(e *hle.Env) error {
 	k := *b.inFlight
 	if !b.release {
 		e.Mem.W8(bdaKbdFlags, e.Mem.R8(bdaKbdFlags)&0xF0|k.Mods&0x0F)
-		if k.Scan != 0 || k.ASCII != 0 {
+		if k.Scan == scanBreak && k.Mods&ModCtrl != 0 {
+			// Ctrl-Break (RBIL Int 09): clear the buffer, put the word 0000h
+			// in it, call INT 1Bh, set bit 7 of 0040:0071. The INT 1Bh call
+			// returns to the rest of the INT 09h stub.
+			m := e.Mem
+			m.W16(bdaKbdHead, m.R16(bdaKbdStart))
+			m.W16(bdaKbdTail, m.R16(bdaKbdStart))
+			b.bufPut(0)
+			m.W8(bdaBreak, m.R8(bdaBreak)|0x80)
+			e.CPU.Interrupt(0x1B)
+		} else if k.Scan != 0 || k.ASCII != 0 {
 			if !b.bufPut(k.Word()) {
 				e.Note("keyboard buffer full")
 			}
@@ -208,6 +221,9 @@ func (b *BIOS) bufGet() uint16 {
 	m.W16(bdaKbdHead, head)
 	return w
 }
+
+// PeekKey returns the first key of the BIOS buffer without removing it.
+func (b *BIOS) PeekKey() (uint16, bool) { return b.bufPeek() }
 
 // KeyAvailable reports whether the BIOS buffer holds a key.
 func (b *BIOS) KeyAvailable() bool { _, ok := b.bufPeek(); return ok }
