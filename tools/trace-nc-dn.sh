@@ -9,6 +9,7 @@ set -u
 bin=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 nc=$2; dn=$3; out=$4
 mkdir -p "$out"
+out=$(cd "$out" && pwd)
 sum="$out/summary.txt"
 : > "$sum"
 # name:dir:program:keys
