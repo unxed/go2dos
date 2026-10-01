@@ -102,6 +102,11 @@ type DOS struct {
 
 	noLFN    bool
 	hostExec bool
+	// Text window API (textwin.go): the program asked to be told of size
+	// changes; the role of the screen; the machine's hook for a role change.
+	winWatch bool
+	winGrid  bool
+	OnRole   func(grid bool)
 	host     *hostIO // pipe mode, otherwise nil
 
 	faults    [lastDrive]driveFault
@@ -208,6 +213,7 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 	iret := e.Emit([]byte{0xCF})
 	e.SetVector(0x2A, hle.ROMSeg, iret)
 	d.installHostExecAPI()
+	d.installTextWin()
 	return d, nil
 }
 

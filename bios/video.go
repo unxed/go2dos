@@ -137,12 +137,26 @@ func (v *Video) cellAddr(page byte, row, col int) uint32 {
 	return v.pageAddr(page) + uint32((row*v.cols()+col)*2)
 }
 
+// MaxCells is the size of the video window in cells.
+const MaxCells = 0x8000
+
+// ValidTextSize checks a text screen size.
+func ValidTextSize(cols, rows int) error {
+	if cols < 80 || cols > 255 || rows < 25 || rows > 255 || cols*rows > MaxCells {
+		return fmt.Errorf("text screen %dx%d: columns 80-255, rows 25-255, at most 32768 cells", cols, rows)
+	}
+	return nil
+}
+
+// Size returns the columns and rows of the current text mode.
+func (v *Video) Size() (cols, rows int) { return v.cols(), v.rows() }
+
 // SetTextSize sets the size of the 80-column text modes and applies it to the
 // current mode. The window is 32768 cells at most; the columns must fit the
 // byte that INT 10h/0Fh returns, the rows the byte at 0040:0084.
 func (v *Video) SetTextSize(cols, rows int) error {
-	if cols < 80 || cols > 255 || rows < 25 || rows > 255 || cols*rows > 0x8000 {
-		return fmt.Errorf("text screen %dx%d: columns 80-255, rows 25-255, at most 32768 cells", cols, rows)
+	if err := ValidTextSize(cols, rows); err != nil {
+		return err
 	}
 	v.cfgCols, v.cfgRows = cols, rows
 	return v.setMode(v.mode(), true)

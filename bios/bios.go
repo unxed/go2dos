@@ -131,6 +131,11 @@ func (b *BIOS) int08(e *hle.Env) error {
 
 // --- keyboard ---------------------------------------------------------------
 
+// ResizeKey is the keystroke that the text window API (DOS-HOST/TEXTWIN, AL=11h)
+// puts in the keyboard buffer when the window size changes: INT 16h returns
+// AX=FF00h. Scan code FFh is the keyboard overrun code, no real key has it.
+var ResizeKey = KeyEvent{Scan: 0xFF}
+
 // PushKey queues a keystroke from the host.
 func (b *BIOS) PushKey(k KeyEvent) { b.kbdQueue = append(b.kbdQueue, k) }
 

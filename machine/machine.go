@@ -119,6 +119,8 @@ type Machine struct {
 	pit pit
 
 	keys     chan bios.KeyEvent
+	resizeMu sync.Mutex
+	resize   *[2]int // size asked for by Resize, applied by the machine goroutine
 	recMu    sync.Mutex
 	recorded []recordedKey
 	start    time.Time
@@ -240,6 +242,7 @@ func New(cfg Config) (*Machine, error) {
 	}
 	m.pic.imr = 0
 	m.CPU.Intr = m.pic.ack
+	m.DOS.OnRole = m.setRole
 	if m.DOS.PipeMode() {
 		m.BIOS.Video.Stream = m.DOS.HostTTY
 	}
@@ -276,6 +279,38 @@ func (m *Machine) PushKey(k bios.KeyEvent) {
 	m.recorded = append(m.recorded, recordedKey{time.Since(m.start), k})
 	m.recMu.Unlock()
 	m.keys <- k
+}
+
+// Resize changes the text window to cols x rows (the host window changed).
+// The machine applies it in its own goroutine: the BDA and CRTC are updated,
+// the screen is cleared (as a mode set does), and if the program asked for it
+// (DOS-HOST/TEXTWIN, AL=11h) the word FF00h goes into the keyboard buffer.
+// Safe from any goroutine; the size is checked at once.
+func (m *Machine) Resize(cols, rows int) error {
+	if err := bios.ValidTextSize(cols, rows); err != nil {
+		return err
+	}
+	m.resizeMu.Lock()
+	m.resize = &[2]int{cols, rows}
+	m.resizeMu.Unlock()
+	return nil
+}
+
+func (m *Machine) applyResize() {
+	m.resizeMu.Lock()
+	r := m.resize
+	m.resize = nil
+	m.resizeMu.Unlock()
+	if r == nil {
+		return
+	}
+	if err := m.BIOS.Video.SetTextSize(r[0], r[1]); err != nil {
+		m.Env.Note("resize %dx%d: %v", r[0], r[1], err)
+		return
+	}
+	if m.DOS.WatchingResize() {
+		m.BIOS.PushKey(bios.ResizeKey)
+	}
 }
 
 // PasteText types text as keystrokes (keys.Paste). The BIOS releases them as
@@ -376,6 +411,7 @@ func (m *Machine) Unsupported() []hle.UnsupportedCall { return m.Env.Unsupported
 
 // pollHost moves host events into the machine: keys and timer ticks.
 func (m *Machine) pollHost() {
+	m.applyResize()
 	for {
 		select {
 		case k := <-m.keys:
@@ -617,6 +653,22 @@ func (m *Machine) checkDirect() {
 		m.flushStream()
 		m.gridOwner = m.DOS.PSP()
 		m.setGrid(true)
+	}
+}
+
+// setRole is the screen role that a program announces (DOS-HOST/TEXTWIN,
+// AL=12h): the full-screen interface shows the grid, the console role the
+// stream. Only the console display mode has two.
+func (m *Machine) setRole(grid bool) {
+	if !m.console {
+		return
+	}
+	m.flushStream()
+	if grid {
+		m.gridOwner = m.DOS.PSP()
+	}
+	if grid != m.grid {
+		m.setGrid(grid)
 	}
 }
 
