@@ -27,6 +27,7 @@ While running in a terminal, press Ctrl-] then:
   d  quit and write a diagnostic dump
   c  copy the screen text to the clipboard
   v  paste the clipboard as keystrokes
+  y/p/x  send Ctrl-Ins / Shift-Ins / Shift-Del to the program
   ]  send Ctrl-] to the program
 
 flags:
@@ -39,7 +40,15 @@ func main() {
 func run() int {
 	o := frontend.RegisterFlags(flag.CommandLine, true)
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage); flag.PrintDefaults() }
+	sync := flag.String("clip-sync", "auto", "DOS clipboard and the system one: auto (tool, then OSC 52), tool, osc52, off")
 	flag.Parse()
+	switch *sync {
+	case "auto", "tool", "osc52", "off":
+		clipSync = *sync
+	default:
+		fmt.Fprintln(os.Stderr, "go2dos: -clip-sync must be auto, tool, osc52 or off")
+		return 2
+	}
 	if flag.NArg() < 1 {
 		flag.Usage()
 		return 2

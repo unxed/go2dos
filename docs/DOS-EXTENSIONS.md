@@ -98,6 +98,15 @@ not shrink them after trailing blanks are cut). Any other function of `AH=17h`
 stops the machine ("not supported"). All of this is per machine: there is one
 clipboard and one "open" flag.
 
+Host side (not a DOS interface): in the terminal front end the clipboard of the
+server is tied to the system clipboard (`-clip-sync auto|tool|osc52|off`, default
+`auto`, `cmd/go2dos/sysclip.go`): a write goes to `wl-copy`, `xclip`, `xsel` or
+`pbcopy` if one is installed (and `WAYLAND_DISPLAY`/`DISPLAY` is set), else to the
+terminal with OSC 52; a read takes the text from `wl-paste`, `xclip -o`, `xsel -b -o`
+or `pbpaste`, else the text held last (including text the terminal pasted in
+bracketed-paste mode). The tools get one second. Other front ends (vtui, headless)
+are not changed.
+
 Typical use (as in the clients above): copy = 1700h, 1701h, 1702h, 1703h, 1708h;
 paste = 1700h, 1701h, 1704h (size), allocate a buffer of at least that size, 1705h,
 1708h. The text of the clipboard is limited by the client's buffer: a client must
@@ -294,7 +303,7 @@ Without the file VC works as before.
   first line of the clipboard text (at most 2048 bytes in all) is put at `CS:0800h`,
   CX = its length (0 = none), CF = 1 if there is no server.
 - **Keys** (input fields and the command line only): Ctrl-Ins copies the line,
-  Shift-Ins pastes the first line, Shift-Del cuts it (Del without Shift deletes a
+  Shift-Ins (or Ctrl-Shift-Ins from a terminal that delivers it; the host turns it into Shift-Ins) pastes the first line, Shift-Del cuts it (Del without Shift deletes a
   character, as before). Terminals that keep these combinations for themselves can
   send them with `Ctrl-]`, then `y`, `p` or `x`.
 - **Limits.** `VC.COM` has 8 bytes left of 65280 (gate G3 of `ASM-GATES.md`). The editor

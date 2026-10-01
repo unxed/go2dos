@@ -29,8 +29,8 @@ import (
 type termHost struct {
 	rend *renderer
 	in   *stdinReader
-	clip frontend.MemoryClipboard // what the DOS clipboard server (INT 2Fh/17xx) sees
-	sel  *selection               // selection mode (input goroutine only), nil: off
+	clip *sysClip   // what the DOS clipboard server (INT 2Fh/17xx) sees
+	sel  *selection // selection mode (input goroutine only), nil: off
 
 	fd       int
 	st       *term.State
@@ -43,8 +43,13 @@ type termHost struct {
 // sigGrace — сколько после конца команды SIGINT ещё считается её сигналом.
 const sigGrace = 200 * time.Millisecond
 
+// clipSync is the -clip-sync mode (set by main before newTermHost).
+var clipSync = "auto"
+
 func newTermHost(w io.Writer) *termHost {
-	return &termHost{rend: newRenderer(w), in: newStdinReader(os.Stdin)}
+	h := &termHost{rend: newRenderer(w), in: newStdinReader(os.Stdin)}
+	h.clip = newSysClip(clipSync, h.rend.copyToTerminal)
+	return h
 }
 
 func (h *termHost) Draw(s *bios.Screen)                { h.rend.draw(s) }
@@ -70,7 +75,7 @@ func (h *termHost) Start(m *machine.Machine, display string, stop func(dump bool
 		}
 		m.PushKey(k)
 	}
-	p := &inputParser{page: m.CP, push: push, paste: m.PasteText, cmd: func(c termCmd) {
+	p := &inputParser{page: m.CP, push: push, paste: func(t string) { h.clip.remember(t); m.PasteText(t) }, cmd: func(c termCmd) {
 		switch c {
 		case cmdSelect:
 			h.startSelect(m)
@@ -87,13 +92,12 @@ func (h *termHost) Start(m *machine.Machine, display string, stop func(dump bool
 }
 
 // Clipboard is the clipboard that the DOS programs see (frontend.ClipboardProvider).
-func (h *termHost) Clipboard() frontend.Clipboard { return &h.clip }
+func (h *termHost) Clipboard() frontend.Clipboard { return h.clip }
 
 // copyScreen puts the text of the screen on the clipboards: ours and the terminal's.
 func (h *termHost) copyScreen(m *machine.Machine) {
 	text := m.Screen().Text()
 	h.clip.SetText(text)
-	h.rend.copyToTerminal(text)
 }
 
 // startSelect turns the selection mode on (the grid display only).
@@ -118,7 +122,6 @@ func (h *termHost) selectKey(m *machine.Machine, k bios.KeyEvent) {
 		h.rend.setSelection(nil)
 		text := m.Screen().Selection(x0, y0, x1, y1)
 		h.clip.SetText(text)
-		h.rend.copyToTerminal(text)
 	case selCancel:
 		h.sel = nil
 		h.rend.setSelection(nil)
@@ -546,6 +549,9 @@ func (p *inputParser) csi(params string, final byte) {
 	switch {
 	case final == '~':
 		n, _ := strconv.Atoi(parts[0])
+		if n == 2 && mods == bios.ModCtrl|bios.ModLShift {
+			mods = bios.ModLShift // Ctrl-Shift-Ins: an alternative to Shift-Ins (paste)
+		}
 		if name, ok := csiTilde[n]; ok {
 			p.named(name, mods)
 		}
