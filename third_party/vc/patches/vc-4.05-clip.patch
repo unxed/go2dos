@@ -1,5 +1,5 @@
 diff --git a/vc.asm b/vc.asm
-index 2954a1d..34a7fc5 100644
+index 2954a1d..07747f2 100644
 --- a/vc.asm
 +++ b/vc.asm
 @@ -1437,7 +1437,7 @@ FncTab	DW	4800h, F00_00		; Up
@@ -15,11 +15,19 @@ index 2954a1d..34a7fc5 100644
  	MOV	BX,0FFFFh
  	MOV	AH,48h
  	INT	21h
-+	SUB	BX,(ClipMax SHR 4)+2	; Reserve for the ClipPaste buffer (+MCB)
++	SUB	BX,ExtBlk+2		; Reserve for the module block (+MCB), see ExtLoad
  	MOV	AH,48h
  	INT	21h
  	MOV	ES,AX
-@@ -24604,13 +24605,15 @@ EdKeys	DW	0013h, E01_00		; ^S
+@@ -2042,6 +2043,7 @@ Init27:	CMP	AL,ES:[DI]
+ 	JMP	Init27
+ Init28:	ADD	DI,3
+ 	MOV	DS:[MD.OvlPth],DI
++	CALL	ExtLoad			; VCEXT.BIN
+ 	MOV	DI,OFFSET MD.NcPath	; NcPath
+ 	PUSH	ES
+ 	PUSH	DI
+@@ -24604,13 +24606,15 @@ EdKeys	DW	0013h, E01_00		; ^S
  	DW	7500h, E06_00		; ^End
  	DW	0008h, E07_00		; BackSpace
  	DW	0007h, E08_00		; ^G
@@ -36,24 +44,30 @@ index 2954a1d..34a7fc5 100644
  	DW	0
  
  	.CODE
-@@ -24717,6 +24720,170 @@ E13_00:	MOV	DS:[MD.Quote],1		; ^Q
+@@ -24717,6 +24721,156 @@ E13_00:	MOV	DS:[MD.Quote],1		; ^Q
  	JMP	E00_04
  ;EdLin	ENDP
  
-+;---------------- Clipboard (WinOldAp) -----------------
-+; INT 2Fh AX=17xxh, format 7 (CF_OEMTEXT). Without a server nothing happens.
++;---------------- Clipboard: client + extension module -----------------
++; The work is done by VCEXT.BIN (third_party/vc/ext/vcext.asm), loaded by ExtLoad
++; at start into a block of ExtBlk paragraphs; without the file nothing happens.
 +; Line editing: Ctrl-Ins - copy the line, Shift-Ins - paste, Shift-Del - cut.
-+ClipMax	EQU	1024			; Max size of the text to paste
++ExtBlk	EQU	100h			; Paragraphs for the module block (4 KB)
++XCopy	EQU	4			; Entries of the module (offsets in the file)
++XFetch	EQU	7
++Buf	EQU	800h			; The text of the clipboard in the block
 +
 +E14_00:	CALL	ClipShift		; Shift-Ins - paste
 +	JE	E00_04
 +	CALL	ClipPaste
 +	JMP	E00_06
-+E15_00:	CALL	ClipCopy		; Ctrl-Ins - copy
++E15_00:	MOV	BX,XCopy		; Ctrl-Ins - copy
++	CALL	ExtCall
 +	JMP	E00_04
 +E16_00:	CALL	ClipShift		; Shift-Del - cut, Del - delete a char
 +	JE	E08_00
-+	CALL	ClipCopy
++	MOV	BX,XCopy
++	CALL	ExtCall
 +	JC	E08_00			; No clipboard: only delete a char
 +	MOV	BYTE PTR ES:[DI],0
 +	XOR	DX,DX
@@ -71,73 +85,18 @@ index 2954a1d..34a7fc5 100644
 +	POP	AX
 +	RET
 +
-+; INT 2Fh keeping all registers except AX, DX.
-+ClipInt:
-+	PUSH	BX
-+	PUSH	CX
-+	PUSH	SI
-+	PUSH	DI
-+	PUSH	BP
-+	PUSH	DS
-+	PUSH	ES
-+	INT	2Fh
-+	POP	ES
-+	POP	DS
-+	POP	BP
-+	POP	DI
-+	POP	SI
-+	POP	CX
-+	POP	BX
++ExtOff	DW	0			; Far pointer to an entry of the module:
++ExtSeg	DW	0			; offset, segment (0 - no module)
++
++; Call the entry BX of the module.  CF=1 - no module.  The entry's contract applies.
++ExtCall:
++	CMP	CS:[ExtSeg],0
++	JE	EC_09
++	MOV	CS:[ExtOff],BX
++	CALL	DWORD PTR CS:[ExtOff]
 +	RET
-+
-+; Open the clipboard.  CF=1 - no clipboard.  Destroys: AX, DX, flags.
-+ClipOpen:
-+	MOV	AX,1700h
-+	CALL	ClipInt
-+	CMP	AX,1700h
-+	JE	CO_01
-+	MOV	AX,1701h
-+	CALL	ClipInt
-+	OR	AX,AX
-+	JNE	CO_02
-+CO_01:	STC
-+CO_02:	RET
-+
-+; Copy the line ES:DI (ASCIIZ) to the clipboard; an empty line is not copied.
-+; CF=1 - no clipboard.  Destroys: flags.
-+ClipCopy:
-+	CMP	BYTE PTR ES:[DI],0
-+	JE	CC_09
-+	PUSH	AX
-+	PUSH	BX
-+	PUSH	CX
-+	PUSH	DX
-+	PUSH	SI
-+	PUSH	DI
-+	CALL	ClipOpen
-+	JC	CC_08
-+	MOV	BX,DI
-+	XOR	AL,AL
-+	MOV	CX,0FFFFh
-+	CLD
-+	REPNE	SCASB
-+	NOT	CX			; Length with the final 0
-+	MOV	AX,1702h		; Empty
-+	CALL	ClipInt
-+	MOV	AX,1703h		; Set: DX - format, ES:BX - data, SI:CX - size
-+	MOV	DX,7
-+	XOR	SI,SI
-+	CALL	ClipInt
-+	MOV	AX,1708h		; Close
-+	CALL	ClipInt
-+	CLC
-+CC_08:	POP	DI
-+	POP	SI
-+	POP	DX
-+	POP	CX
-+	POP	BX
-+	POP	AX
-+CC_09:	RET
++EC_09:	STC
++	RET
 +
 +; Insert the first line of the clipboard text into the line ES:DI at the cursor
 +; DX; CX - max length of the line, as for EdLin.  Returns DX.  Destroys: flags.
@@ -146,44 +105,21 @@ index 2954a1d..34a7fc5 100644
 +	PUSH	BX
 +	PUSH	SI
 +	PUSH	BP
++	PUSH	CX
 +	PUSH	DX			; Cursor
-+	XOR	BP,BP			; Segment of the text, 0 - none
-+	CALL	ClipOpen
-+	JC	CP_03
-+	MOV	AX,1704h		; Size: DX:AX
-+	MOV	DX,7
-+	CALL	ClipInt
-+	OR	DX,DX
-+	JNE	CP_02
-+	CMP	AX,1
-+	JBE	CP_02
-+	CMP	AX,ClipMax
-+	JA	CP_02
-+	MOV	BX,ClipMax/16
-+	MOV	AH,48h			; Memory for the text
-+	INT	21h
-+	JC	CP_02
-+	MOV	BP,AX
-+	PUSH	ES
-+	MOV	ES,AX
++	MOV	BX,XFetch
++	CALL	ExtCall			; CX - length of the text
++	MOV	BP,CX
++	POP	DX
++	POP	CX
++	JC	CP_09
 +	XOR	BX,BX
-+	MOV	BYTE PTR ES:[BX],0
-+	MOV	DX,7
-+	MOV	AX,1705h		; Get: ES:BX - buffer
-+	CALL	ClipInt
-+	POP	ES
-+CP_02:	MOV	AX,1708h		; Close
-+	CALL	ClipInt
-+CP_03:	POP	DX
-+	OR	BP,BP
-+	JE	CP_09
-+	XOR	BX,BX
-+CP_04:	PUSH	DS
-+	MOV	DS,BP
-+	MOV	AL,DS:[BX]
++CP_04:	CMP	BX,BP
++	JAE	CP_09
++	PUSH	DS
++	MOV	DS,CS:[ExtSeg]
++	MOV	AL,DS:[BX+Buf]
 +	POP	DS
-+	CMP	AL,' '
-+	JB	CP_05			; End of the first line
 +	INC	BX
 +	XOR	AH,AH
 +	PUSH	BX
@@ -191,17 +127,75 @@ index 2954a1d..34a7fc5 100644
 +	CALL	EdLin
 +	POP	BX
 +	JC	CP_04
-+CP_05:	PUSH	ES
-+	PUSH	DX
-+	MOV	ES,BP
-+	MOV	AH,49h			; Free the memory
-+	INT	21h
-+	POP	DX
-+	POP	ES
 +CP_09:	POP	BP
 +	POP	SI
 +	POP	BX
 +	POP	AX
++	RET
++
++ExtName	DB	'VCEXT.BIN',0
++
++; Load VCEXT.BIN from the directory of VC.COM.  In: ES:DI - the path of VC.COM in
++; the environment.  Destroys: AX, BX, CX, DX, SI (not live in Init28, G5), flags.
++; On any error there is no module (ExtSeg=0).
++ExtLoad:
++	PUSH	DI
++	PUSH	DS
++	PUSH	ES
++	CLD
++	MOV	CS:[ExtSeg],0
++	MOV	BX,ExtBlk
++	MOV	AH,48h
++	INT	21h
++	JC	EL_09
++	PUSH	ES
++	POP	DS
++	MOV	SI,DI
++	MOV	ES,AX
++	MOV	DI,0C00h		; The path: up to the last '\', then the name
++	XOR	BX,BX
++EL_01:	LODSB
++	STOSB
++	CMP	AL,'\'
++	JNE	EL_02
++	MOV	BX,DI
++EL_02:	OR	AL,AL
++	JNE	EL_01
++	OR	BX,BX
++	JE	EL_08
++	MOV	DI,BX
++	MOV	SI,OFFSET ExtName
++	PUSH	CS
++	POP	DS
++	MOV	CX,10
++	REP	MOVSB
++	PUSH	ES
++	POP	DS
++	MOV	DX,0C00h
++	MOV	AX,3D00h
++	INT	21h
++	JC	EL_08
++	XCHG	BX,AX
++	XOR	DX,DX
++	MOV	CX,800h
++	MOV	AH,3Fh
++	INT	21h
++	PUSHF
++	MOV	AH,3Eh
++	INT	21h
++	POPF
++	JC	EL_08
++	CMP	WORD PTR DS:[0],'CV'	; 'VCX1'
++	JNE	EL_08
++	CMP	WORD PTR DS:[2],'1X'
++	JNE	EL_08
++	MOV	CS:[ExtSeg],DS
++	JMP	EL_09
++EL_08:	MOV	AH,49h
++	INT	21h
++EL_09:	POP	ES
++	POP	DS
++	POP	DI
 +	RET
 +
  EdSub1	PROC	NEAR

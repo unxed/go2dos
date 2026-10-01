@@ -76,3 +76,10 @@ csize=$(wc -c <"$clip/VC.COM" | tr -d ' ')
 mkdir -p "$out/bin/4.05-clip"
 cp "$clip/VC.COM" "$out/bin/4.05-clip/VC.COM"
 echo "== VC 4.05 с буфером обмена: $csize байт (запас до 65280: $((65280 - csize)))"
+
+# Модуль расширений VCEXT.BIN (T15c): third_party/vc/ext/vcext.asm, не больше 2048 байт.
+"$jwasm" -q -bin -Fo"$out/bin/4.05-clip/VCEXT.BIN" "$tp/ext/vcext.asm" \
+  || die "JWasm не собрал VCEXT.BIN"
+xsize=$(wc -c <"$out/bin/4.05-clip/VCEXT.BIN" | tr -d ' ')
+[ "$xsize" -le 2048 ] || die "VCEXT.BIN $xsize байт, предел 2048 (раскладка блока в vcext.asm)"
+echo "== VCEXT.BIN: $xsize байт (предел 2048)"
