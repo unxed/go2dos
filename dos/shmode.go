@@ -59,6 +59,9 @@ func (d *DOS) shMode(st *shellState, args string) {
 			st.level = 1
 			return
 		}
+		if d.OnTextSize != nil {
+			d.OnTextSize(cols, rows)
+		}
 		if d.winWatch {
 			d.b.PushKey(bios.ResizeKey)
 		}

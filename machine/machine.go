@@ -93,10 +93,13 @@ type Config struct {
 	// to OnStream and switches to the grid (OnDisplay(true)) only while a
 	// process writes video memory directly, until that process ends
 	// (OnDisplay(false)). See docs/SCREEN.md.
-	Display   string
-	OnStream  func(b []byte)
-	OnClear   func() // console mode: clear the terminal (the shell's CLS)
-	OnDisplay func(grid bool)
+	Display  string
+	OnStream func(b []byte)
+	OnClear  func() // console mode: clear the terminal (the shell's CLS)
+	// OnTermSize asks the host to resize its terminal to cols x rows after the shell's
+	// MODE CON changed the text window, while the grid is shown.
+	OnTermSize func(cols, rows int)
+	OnDisplay  func(grid bool)
 	// Stdin, Stdout and Stderr switch on pipe mode (docs/SCREEN.md, S1):
 	// DOS handles 0, 1 and 2 are these host streams (UTF-8 on the host side,
 	// the OEM code page on the DOS side), and the console teletype (INT 29h,
@@ -255,6 +258,11 @@ func New(cfg Config) (*Machine, error) {
 	m.CPU.Intr = m.pic.ack
 	m.DOS.OnRole = m.setRole
 	m.DOS.OnCLS = m.cls
+	m.DOS.OnTextSize = func(cols, rows int) {
+		if m.grid && m.cfg.OnTermSize != nil {
+			m.cfg.OnTermSize(cols, rows)
+		}
+	}
 	if m.DOS.PipeMode() {
 		m.BIOS.Video.Stream = m.DOS.HostTTY
 	}
@@ -716,6 +724,9 @@ func (m *Machine) SetConsoleOutput(onStream func([]byte), onDisplay func(grid bo
 
 // SetConsoleClear sets the callback that clears the terminal in console mode.
 func (m *Machine) SetConsoleClear(f func()) { m.cfg.OnClear = f }
+
+// SetTermResize sets the callback that resizes the terminal after MODE CON.
+func (m *Machine) SetTermResize(f func(cols, rows int)) { m.cfg.OnTermSize = f }
 
 // cls is the shell's CLS: the emulated screen, and in console mode, while the
 // stream (not the grid) is shown, the terminal too.

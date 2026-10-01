@@ -306,3 +306,28 @@ func TestShellReadOnlyDrive(t *testing.T) {
 		t.Errorf("reading must still work:\n%s", text)
 	}
 }
+
+// MODE CON COLS=.. LINES=.. asks the host to resize its terminal while the grid is
+// shown; a bad size and the status display do not; in console mode with the stream
+// shown (no grid) the terminal is left alone.
+func TestShellModeAsksTerminalResize(t *testing.T) {
+	var got [][2]int
+	hook := func(m *Machine) { m.SetTermResize(func(c, r int) { got = append(got, [2]int{c, r}) }) }
+	runShellCfg(t, Config{}, " /C MODE CON COLS=100 LINES=40", nil, hook)
+	if len(got) != 1 || got[0] != [2]int{100, 40} {
+		t.Errorf("resize requests %v, want [[100 40]]", got)
+	}
+	got = nil
+	runShellCfg(t, Config{}, " /C MODE CON COLS=10", nil, hook)
+	runShellCfg(t, Config{}, " /C MODE CON", nil, hook)
+	if len(got) != 0 {
+		t.Errorf("unexpected resize requests %v", got)
+	}
+	runShellCfg(t, Config{Display: "console"}, " /C MODE CON COLS=100 LINES=40", nil, func(m *Machine) {
+		m.SetConsoleOutput(func([]byte) {}, func(bool) {})
+		hook(m)
+	})
+	if len(got) != 0 {
+		t.Errorf("resize requests in console stream mode: %v", got)
+	}
+}

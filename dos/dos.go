@@ -113,8 +113,11 @@ type DOS struct {
 	winWatch bool
 	winGrid  bool
 	OnRole   func(grid bool)
-	OnCLS    func()  // the shell's CLS; nil: the emulated screen only
-	host     *hostIO // pipe mode, otherwise nil
+	OnCLS    func() // the shell's CLS; nil: the emulated screen only
+	// OnTextSize is told that MODE CON set the size of the text window (the host may
+	// resize its terminal); nil: nobody.
+	OnTextSize func(cols, rows int)
+	host       *hostIO // pipe mode, otherwise nil
 
 	faults    [lastDrive]driveFault
 	anyFault  bool

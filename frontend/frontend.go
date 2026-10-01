@@ -91,6 +91,7 @@ type Options struct {
 	HostExec    bool
 	OpenCmd     string
 	RealNames   bool
+	TermResize  bool
 	// Pipe is pipe mode (docs/SCREEN.md, S1): the program's standard streams
 	// are those of go2dos (UTF-8 on the host, the OEM code page for DOS), no
 	// screen is drawn and no host front end is needed. Ignored with Headless.
@@ -135,6 +136,7 @@ func RegisterFlags(fs *flag.FlagSet, terminal bool) *Options {
 	fs.BoolVar(&o.NoLFN, "nolfn", false, "switch the long file name API (INT 21h AH=71h) off: every 71xx call answers \"not supported\"")
 	fs.StringVar(&o.Watch, "watch", "", "log writes to these comma-separated addresses: linear hex or SEG:OFF, optionally /N bytes (with -trace or in dumps)")
 	fs.BoolVar(&o.RealNames, "real-names", true, "show real file names on the screen instead of the aliases of names that the code page cannot hold (the program still sees the aliases)")
+	fs.BoolVar(&o.TermResize, "term-resize", true, "MODE CON COLS=.. LINES=..: ask the terminal to resize its window (ESC[8;rows;colst) while the grid is shown")
 	fs.StringVar(&o.OpenCmd, "open-cmd", "", "START file: host command that opens it (the path is appended as the last argument); default xdg-open / open / cmd start")
 	fs.BoolVar(&o.HostExec, "host-exec", false, "let the built-in COMMAND.COM run host commands (a line starting with \"!\", or a command in the host PATH); leaves the sandbox")
 	fs.StringVar(&o.Size, "size", "", "text screen size `WxH` (columns 80-255, rows 25-255, at most 32768 cells; default 80x25)")
@@ -244,6 +246,9 @@ func Run(o *Options, args []string, host Host) int {
 		if cl, ok := console.(interface{ Clear() }); ok {
 			m.SetConsoleClear(cl.Clear)
 		}
+	}
+	if rs, ok := host.(interface{ Resize(cols, rows int) }); ok && o.TermResize && !o.Headless && !pipe {
+		m.SetTermResize(rs.Resize)
 	}
 	if m.CodepageInfo.Note != "" {
 		fmt.Fprintln(os.Stderr, "go2dos:", m.CodepageInfo.Note)

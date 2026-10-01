@@ -268,8 +268,9 @@ the emulated screen and, in console display mode while the stream (not the grid)
 terminal too (the optional method `Clear` of the host, `ESC[2J ESC[H`). `MODE CON` shows the
 size of the text window (that of `DOS-HOST/TEXTWIN`, §7); `MODE CON COLS=100 LINES=40` sets
 it (columns 80-255, lines 25-255, at most 32768 cells), clears the screen, and gives a
-program that asked for size events (§7) the `FF00h` key. The terminal front end does not
-resize the terminal window itself (the grid display follows the new size).
+program that asked for size events (§7) the `FF00h` key. While the grid is shown, the terminal
+front end also asks the terminal for a window of that size (`ESC[8;rows;colst`; `-term-resize=false`
+turns it off); terminals that ignore the request keep their window and the grid follows the new size.
 
 Planned (the owner's wish, recorded in `HOSTEXEC.md`): the rest of the extensions in the
 built-in commands (command execution with the extensions visible), so that what a

@@ -58,6 +58,9 @@ func (h *termHost) Stream(b []byte, page *cp.Codepage) { h.rend.stream(b, page) 
 // Clear clears the terminal (the shell's CLS in console mode).
 func (h *termHost) Clear() { h.rend.clear() }
 
+// Resize asks the terminal for a window of cols x rows cells (the shell's MODE CON).
+func (h *termHost) Resize(cols, rows int) { h.rend.resize(cols, rows) }
+
 func (h *termHost) Display(grid bool) {
 	h.rend.display(grid)
 	h.altOn = grid
@@ -228,6 +231,16 @@ func (r *renderer) clear() {
 	defer r.mu.Unlock()
 	r.w.WriteString("\x1b[0m\x1b[2J\x1b[H")
 	r.w.Flush()
+}
+
+// resize sends the xterm window request (CSI 8 ; rows ; cols t) and repaints
+// everything on the next draw. Terminals that do not support it ignore it.
+func (r *renderer) resize(cols, rows int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.w.WriteString("\x1b[8;" + strconv.Itoa(rows) + ";" + strconv.Itoa(cols) + "t")
+	r.w.Flush()
+	r.prev = nil
 }
 
 // display switches between the terminal's normal buffer (console stream)

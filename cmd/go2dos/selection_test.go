@@ -170,3 +170,20 @@ func TestTermHostClear(t *testing.T) {
 		t.Errorf("Clear wrote %q", got)
 	}
 }
+
+// resize asks the terminal for the window size and forces a full repaint.
+func TestRendererResize(t *testing.T) {
+	var out bytes.Buffer
+	r := newRenderer(&out)
+	r.draw(selTestScreen("abcd", "efgh"))
+	out.Reset()
+	r.resize(100, 40)
+	if got := out.String(); got != "\x1b[8;40;100t" {
+		t.Errorf("request %q", got)
+	}
+	out.Reset()
+	r.draw(selTestScreen("abcd", "efgh")) // the same cells: a full repaint all the same
+	if !strings.Contains(out.String(), "\x1b[2J") {
+		t.Errorf("no full repaint after the resize: %q", out.String())
+	}
+}
