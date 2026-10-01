@@ -123,6 +123,310 @@ environ_get`, `fd_write` на fd 1/2, `clock_time_get`, `random_get`,
 shutdown` на preopen-сокетах — **исследовать**, достаточно ли этого);
 прослойка RTL для Free Pascal, чтобы DN мог работать через мост (§20).
 
+## W1–W4: Детали реализации
+
+### W1. Структуры и типы WASI preview1
+
+**Базовые типы** (всё little-endian, как в x86):
+
+| Тип | Размер | Значение |
+|---|---|---|
+| `i32` / `u32` | 4 | Знаковое/беззнаковое 32-битное целое |
+| `i64` / `u64` | 8 | Знаковое/беззнаковое 64-битное целое |
+| `isize` | 4 | Параметр в вызове (как `i32`) |
+| `usize` | 4 | Размер или счётчик (как `u32`) |
+| `errno` | 4 | Код ошибки WASI (0 = успех, значения 1–76) |
+| `fd` | 4 | Дескриптор файла |
+| `filesize` | 8 | Размер файла в байтах (i64) |
+| `timestamp` | 8 | Время в наносекундах (u64) |
+| `rights` | 8 | Битовое поле прав доступа (u64) |
+| `dircookie` | 8 | Смещение в каталоге для `fd_readdir` (u64) |
+
+**Структуры данных:**
+
+**`iovec` (8 байт; выравнивание 4)** — буфер для чтения:
+```
+Смещение 0: buf        (4 байта) — far-указатель на буфер
+Смещение 4: buf_len    (4 байта) — размер буфера в байтах
+```
+
+**`ciovec` (8 байт; выравнивание 4)** — буфер для записи, идентичен `iovec`.
+
+**`filestat` (64 байта; выравнивание 8)** — информация о файле:
+```
+Смещение 0:  dev       (8 байт) — ID устройства
+Смещение 8:  ino       (8 байт) — номер inode (уникален на dev)
+Смещение 16: filetype  (1 байт) — тип файла (3=regular, 4=directory, 7=symlink)
+Смещение 24: nlink     (8 байт) — количество жёстких ссылок
+Смещение 32: size      (8 байт) — размер файла в байтах
+Смещение 40: atim      (8 байт) — время последнего доступа (наносекунды)
+Смещение 48: mtim      (8 байт) — время последней модификации
+Смещение 56: ctim      (8 байт) — время последнего изменения статуса
+```
+
+**`fdstat` (24 байта; выравнивание 8)** — информация о дескрипторе:
+```
+Смещение 0:  fs_filetype         (1 байт)  — тип файла
+Смещение 2:  fs_flags            (2 байта) — флаги (append, dsync, nonblock, rsync, sync)
+Смещение 8:  fs_rights_base      (8 байт)  — права доступа к fd
+Смещение 16: fs_rights_inheriting (8 байт) — права для наследуемых fd
+```
+
+**`dirent` (24 байта; выравнивание 8)** — запись каталога:
+```
+Смещение 0:  d_next   (8 байт) — смещение следующей записи (из fd_readdir)
+Смещение 8:  d_ino    (8 байт) — номер inode файла в каталоге
+Смещение 16: d_namlen (4 байта) — длина имени в байтах (UTF-8)
+Смещение 20: d_type   (1 байт)  — тип файла (как в filestat)
+```
+
+**`prestat` (8 байт; выравнивание 4)** — информация о preopen-дескрипторе (вариант):
+```
+Смещение 0: tag       (1 байт) — тип (1 = преоткрытый каталог)
+[выравнивание]
+Смещение 4: pr_name_len (4 байта) — длина имени для fd_prestat_dir_name
+```
+
+**`event` (32 байта; выравнивание 8)** — возникшее событие:
+```
+Смещение 0:  userdata   (8 байт) — значение, переданное в subscription
+Смещение 8:  error      (2 байта) — errno (0 если успех)
+Смещение 10: type       (1 байт)  — тип события (0=clock, 1=fd_read, 2=fd_write)
+Смещение 16: fd_readwrite (16 байт) — данные события (nbytes, flags)
+```
+
+**`subscription` (48 байт; выравнивание 8)** — подписка на событие:
+```
+Смещение 0: userdata (8 байт)  — произвольное значение (вернётся в event)
+Смещение 8: type     (1 байт)  — тип события (0=clock, 1=fd_read, 2=fd_write)
+[выравнивание на 8]
+Смещение 8–47: u     (40 байт) — вариант данных подписки
+  Для clock: id (u32) + timeout (u64) + precision (u64) + flags (u16)
+  Для fd_read/write: file_descriptor (4 байта)
+```
+
+**Коды ошибок WASI** — сопоставление с DOS:
+
+| WASI errno | Имя | Что означает | DOS-эквивалент |
+|---|---|---|---|
+| 0 | `success` | Успех | Нет ошибки |
+| 1 | `e2big` | Аргумент слишком длинный | Не применимо |
+| 2 | `eacces` | Permission denied | 5 (доступ запрещён) |
+| 3 | `eagain` | Resource unavailable, try again | Не применимо |
+| 4 | `ebadf` | Bad file descriptor | 6 (неправильный хэндл) |
+| 5 | `ebadmsg` | Bad message | Не применимо |
+| 13 | `eexist` | File exists | 80 (файл существует) |
+| 14 | `efault` | Bad address | Не применимо |
+| 21 | `eisdir` | Is a directory | 5 (доступ запрещён) |
+| 22 | `einval` | Invalid argument | 87 (неправильный параметр) |
+| 28 | `enospc` | No space left on device | 112 (диск заполнен) |
+| 31 | `enotempty` | Directory not empty | 145 (каталог не пуст) |
+| 38 | `erofs` | Read-only file system | 19 (диск защищён) |
+| 63 | `eof` | End of file | Не применимо |
+
+### W2. Функции файловой системы в WASI preview1
+
+**Работа с дескрипторами файлов:**
+
+| Функция | Параметры | Результат | Когда использовать |
+|---|---|---|---|
+| `fd_read(fd, iovs, iovs_len)` | fd: дескриптор; iovs: массив буферов | size: прочитано байт | Чтение из открытого файла |
+| `fd_write(fd, ciovs, ciovs_len)` | fd: дескриптор; ciovs: буферы для записи | size: написано байт | Запись в файл или консоль (fd 1/2) |
+| `fd_seek(fd, offset, whence)` | fd: дескриптор; offset: i64 смещение; whence: 0=начало, 1=текущая, 2=конец | filesize: новое положение | Перемещение позиции чтения/записи |
+| `fd_tell(fd)` | fd: дескриптор | filesize: текущее положение | Получение текущего смещения |
+| `fd_close(fd)` | fd: дескриптор | none | Закрытие файла и освобождение fd |
+| `fd_prestat_get(fd)` | fd: дескриптор | prestat: тип и информация | Проверка, является ли fd преоткрытым каталогом |
+| `fd_prestat_dir_name(fd, path, path_len)` | fd: преоткрытый fd; path: буфер; path_len: размер | none | Получение имени преоткрытого каталога (диска) |
+| `fd_filestat_get(fd)` | fd: дескриптор | filestat: статус файла | Получение информации о файле |
+
+**Работа с путями:**
+
+| Функция | Параметры | Результат | Когда использовать |
+|---|---|---|---|
+| `path_open(fd, dirflags, path, path_len, oflags, rights_base, rights_inheriting, fdflags)` | fd: преоткрытый fd (диск); dirflags: флаги поиска (0 или SYMLINK_FOLLOW); path: путь в UTF-8; oflags: флаги открытия (CREATE, EXCL, TRUNC, APPEND); rights_*: права доступа; fdflags: флаги fd | fd: новый дескриптор | Открытие файла или каталога относительно диска |
+| `path_filestat_get(fd, dirflags, path, path_len)` | fd: преоткрытый fd; dirflags: флаги; path: путь UTF-8 | filestat: информация о файле | Получение статуса файла без открытия |
+| `path_create_directory(fd, path, path_len)` | fd: преоткрытый fd; path: путь UTF-8 | none | Создание каталога |
+| `path_remove_directory(fd, path, path_len)` | fd: преоткрытый fd; path: путь UTF-8 | none | Удаление пустого каталога |
+| `path_unlink_file(fd, path, path_len)` | fd: преоткрытый fd; path: путь UTF-8 | none | Удаление файла |
+| `path_rename(old_fd, old_path, old_path_len, new_fd, new_path, new_path_len)` | old_fd: исходный fd; old_path: старый путь UTF-8; new_fd: целевой fd; new_path: новый путь | none | Переименование/перемещение файла |
+| `fd_readdir(fd, buf, buf_len, cookie)` | fd: дескриптор каталога; buf: буфер для записей dirent; buf_len: размер буфера; cookie: смещение из d_next | size: записано байт в буфер | Чтение записей каталога (iterated с cookie) |
+
+**Работа с окружением и аргументами:**
+
+| Функция | Параметры | Результат | Когда использовать |
+|---|---|---|---|
+| `args_sizes_get()` | — | (argc: u32, argv_buf_len: u32) | Получение размеров массива аргументов и буфера |
+| `args_get(argv, argv_buf)` | argv: буфер для указателей на строки; argv_buf: буфер для самих строк | none | Получение аргументов командной строки в UTF-8 |
+| `environ_sizes_get()` | — | (envc: u32, env_buf_len: u32) | Получение размеров переменных окружения |
+| `environ_get(environ, environ_buf)` | environ: буфер указателей; environ_buf: буфер строк | none | Получение переменных окружения в UTF-8 |
+
+**Часы и случайность:**
+
+| Функция | Параметры | Результат | Когда использовать |
+|---|---|---|---|
+| `clock_time_get(id, precision)` | id: 0=REALTIME, 1=MONOTONIC; precision: u64 | timestamp: время в наносекундах | Получение текущего времени |
+| `random_get(buf, buf_len)` | buf: буфер; buf_len: размер | none | Получение случайных байт |
+
+**Управление процессом:**
+
+| Функция | Параметры | Результат | Когда использовать |
+|---|---|---|---|
+| `proc_exit(rval)` | rval: u32 код выхода | noreturn | Завершение процесса с кодом выхода |
+| `sched_yield()` | — | none | Передача управления другим потокам/таскам |
+| `poll_oneoff(in, out, nsubscriptions)` | in: указатель на subscription; out: указатель на event; nsubscriptions: число событий | size: число возникших событий | Ожидание событий (часы, готовность fd) |
+
+### W3. Примеры вызовов из DOS-программы (на ассемблере и C)
+
+**Пример на ассемблере (NASM):**
+
+```nasm
+; Получение текущего времени через мост WASI
+; Предположим, что AMIS-диспетчер найден и DX:BX содержит адрес входа
+
+        mov     ax, 1           ; Функция WASI: clock_time_get
+        
+        ; Подготовка блока параметров в памяти (DS:SI)
+        mov     bx, sp          ; Начало блока на стеке
+        
+        ; Параметры (в порядке WASI):
+        ; id: u32 (0 = REALTIME)
+        ; precision: u64
+        ; Результат (указатель на timestamp, u64)
+        
+        lea     si, [bp - 16]   ; DS:SI указывает на блок параметров
+        
+        ; Блок параметров в памяти (16 байт):
+        ; [0:4)   — id (0x00000000 = REALTIME)
+        ; [4:12)  — precision (0x0000000000000001 = 1 наносекунда)
+        ; [12:20) — указатель на результат timestamp (far-указатель)
+        
+        mov     dword [si+0],  0x00000000      ; id = 0
+        mov     dword [si+4],  0x00000001      ; precision (младшие 4 байта)
+        mov     dword [si+8],  0x00000000      ; precision (старшие 4 байта)
+        
+        ; Указатель на результат: ES:DI (преобразуем в far)
+        mov     ax, es
+        mov     [si+12], di     ; Смещение (младшие 2 байта)
+        mov     [si+14], ax     ; Сегмент (старшие 2 байта)
+        
+        ; Вызов через найденный AMIS-диспетчер
+        call    far [bp + 4]    ; DX:BX (диспетчер WASI)
+        
+        ; Проверка ошибки: CF=1 означает ошибку в AX
+        jc      .error
+        
+        ; AX теперь содержит код ошибки (0 = успех)
+        ; Результат timestamp записан в ES:DI (8 байт)
+```
+
+**Пример на C (Open Watcom или gcc-ia16):**
+
+```c
+#include <stdint.h>
+
+/* Типы WASI */
+typedef uint32_t wasi_fd_t;
+typedef uint64_t wasi_filesize_t;
+typedef uint64_t wasi_timestamp_t;
+typedef uint32_t wasi_errno_t;
+
+/* Структура параметров для clock_time_get */
+struct wasi_clock_time_get_params {
+    uint32_t clock_id;      /* 0 = REALTIME, 1 = MONOTONIC */
+    uint64_t precision;     /* Точность в наносекундах */
+    uint64_t *timestamp;    /* Указатель на результат (far) */
+};
+
+/* Прототип: вызов WASI через AMIS */
+extern wasi_errno_t __far wasi_call_far(
+    uint16_t function,              /* AX: номер функции */
+    void __far *params              /* DS:SI: указатель на блок */
+);
+
+/* Обёртка для clock_time_get */
+wasi_errno_t wasi_clock_time_get(
+    uint32_t clock_id,
+    uint64_t precision,
+    uint64_t *out_timestamp
+)
+{
+    struct wasi_clock_time_get_params params = {
+        clock_id,
+        precision,
+        out_timestamp
+    };
+    
+    return wasi_call_far(1, &params);  /* Функция 1 */
+}
+
+/* Обёртка для path_open */
+wasi_errno_t wasi_path_open(
+    wasi_fd_t base_fd,          /* Преоткрытый fd (диск) */
+    const char *path,           /* Путь в UTF-8 */
+    uint32_t path_len,          /* Длина пути */
+    uint16_t oflags,            /* Флаги открытия */
+    uint64_t rights_base,       /* Права доступа */
+    uint64_t rights_inheriting, /* Наследуемые права */
+    uint16_t fdflags,           /* Флаги fd */
+    wasi_fd_t *out_fd           /* Результат: новый fd */
+)
+{
+    struct {
+        uint32_t base_fd;
+        uint32_t path_ptr;      /* far-указатель */
+        uint32_t path_ptr_seg;
+        uint32_t path_len;
+        uint16_t oflags;
+        uint64_t rights_base;
+        uint64_t rights_inheriting;
+        uint16_t fdflags;
+        uint32_t out_fd_ptr;    /* far-указатель на результат */
+        uint32_t out_fd_ptr_seg;
+    } params;
+    
+    /* Заполнение параметров... */
+    
+    return wasi_call_far(10, &params);  /* Функция 10: path_open */
+}
+```
+
+### W4. Соответствие WASI функций функциям DOS API
+
+| WASI функция | DOS INT 21h | Аналог | Комментарий |
+|---|---|---|---|
+| `path_open` + `oflags` | 5Dh | `_lopen`, `open` (C) | Открытие с флагами CREATE/TRUNC/APPEND |
+| `fd_read` | 3Fh | `_lread`, `read` | Чтение из открытого файла |
+| `fd_write` | 40h | `_lwrite`, `write` | Запись в открытый файл или fd 1/2 (консоль) |
+| `fd_seek` | 42h | `_llseek`, `lseek` | Позиционирование (с поддержкой 64-битных смещений) |
+| `fd_tell` | Вычисляется из 42h с whence=1 | — | Нет прямого DOS-аналога |
+| `fd_close` | 3Eh | `_lclose`, `close` | Закрытие файла |
+| `path_filestat_get` | 4Eh/4Fh | `findfirst`, `stat` | Получение информации о файле без открытия |
+| `path_create_directory` | 39h | `mkdir` | Создание каталога |
+| `path_remove_directory` | 3Ah | `rmdir` | Удаление каталога |
+| `path_unlink_file` | 41h | `unlink` | Удаление файла |
+| `path_rename` | 56h | `rename` | Переименование/перемещение файла |
+| `fd_readdir` | 4Eh/4Fh (FindNext) | `findfirst`, `findnext` | Перечисление каталога с cookie вместо handle |
+| `fd_filestat_get` | 4Dh (GetFileSize) + IOCTL | `fstat`, `stat` | Получение размера, времён, типа файла |
+| `args_get` | PSP (1Eh/80h) | `argv` (C) | Аргументы командной строки (преобразование в UTF-8) |
+| `environ_get` | INT 2Eh / McEnviron | `environ` (C) | Переменные окружения (преобразование в UTF-8) |
+| `clock_time_get` | INT 1Ah / Int 21h (2Ah/2Bh) | `time`, `clock` | Текущее время в наносекундах вместо тиков/даты |
+| `random_get` | INT 1Ah (0x2C03) / RDRAND | `rand` | Случайные байты (в DOS нет встроенного API) |
+| `fd_write` (fd 1/2) | 40h с хэндлом 1/2 | `printf`, `puts` | Вывод на консоль (преобразование UTF-8 в OEM) |
+
+**Ключевые отличия:**
+
+1. **64-битные смещения:** `fd_seek` и `fd_tell` работают с 64-битными смещениями, в то время как DOS INT 21h 42h имеет максимум 32 бита (DX:AX). WASI позволяет работать с большими файлами.
+
+2. **UTF-8 пути:** WASI использует UTF-8, DOS — OEM (кодовая страница). Мост должен преобразовывать пути при открытии и имена при чтении каталога.
+
+3. **Структурированный readdir:** `fd_readdir` с `cookie` эффективнее DOS `findnext`, так как не требует сохранения состояния в DTA.
+
+4. **Отсутствие побочных эффектов:** WASI `fd_filestat_get` не имеет побочных эффектов на текущий каталог, в то время как DOS `4Eh` (FindFirst) меняет DTA и текущий поиск.
+
+5. **Консоль как файл:** WASI fd 0/1/2 — это стандартный ввод/вывод как файлы. DOS имеет отдельные `INT 21h` 06h (console I/O) и `INT 16h` (клавиатура).
+
+6. **Нет специальных файлов:** WASI не поддерживает устройства типа PRN, CON, AUX (это реквизит DOS). Все файловые операции — обычные файлы или каталоги.
+
 ## Чего не делать
 
 - Не заменять UTF-8 имена мостом и не переводить на мост VC.
