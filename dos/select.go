@@ -1,0 +1,116 @@
+package dos
+
+import (
+	"strings"
+
+	"github.com/unxed/go2dos/bios"
+)
+
+// TextSelection represents a text selection on the screen with start and end coordinates.
+// Coordinates are (column, row) where (0,0) is top-left.
+type TextSelection struct {
+	StartX, StartY int // selection start
+	EndX, EndY     int // selection end
+}
+
+// GetSelectedText returns the text selected by the TextSelection from the given screen snapshot.
+// If the selection is empty or invalid, returns an empty string.
+// The selection spans from (StartX, StartY) to (EndX, EndY) inclusive.
+// If start is after end, they are swapped.
+func (ts *TextSelection) GetSelectedText(screen *bios.Screen) string {
+	if !screen.TextMode() {
+		return ""
+	}
+
+	// Ensure start <= end
+	startX, startY := ts.StartX, ts.StartY
+	endX, endY := ts.EndX, ts.EndY
+
+	if startY > endY {
+		startY, endY = endY, startY
+		startX, endX = endX, startX
+	} else if startY == endY && startX > endX {
+		startX, endX = endX, startX
+	}
+
+	// Clamp coordinates to screen bounds
+	if startY < 0 {
+		startY = 0
+		startX = 0
+	}
+	if startY >= screen.Rows {
+		return ""
+	}
+	if endY >= screen.Rows {
+		endY = screen.Rows - 1
+	}
+	if endX >= screen.Cols {
+		endX = screen.Cols - 1
+	}
+	if startX < 0 {
+		startX = 0
+	}
+	if startX >= screen.Cols {
+		startX = screen.Cols - 1
+	}
+
+	var lines []string
+
+	// Single line selection
+	if startY == endY {
+		var result []rune
+		for x := startX; x <= endX; x++ {
+			cell := screen.Cells[startY*screen.Cols+x]
+			result = append(result, cell.Rune)
+		}
+		return strings.TrimRight(string(result), " ")
+	}
+
+	// Multi-line selection
+	// First line: from startX to end of line
+	var firstLine []rune
+	for x := startX; x < screen.Cols; x++ {
+		cell := screen.Cells[startY*screen.Cols+x]
+		firstLine = append(firstLine, cell.Rune)
+	}
+	lines = append(lines, strings.TrimRight(string(firstLine), " "))
+
+	// Middle lines: entire lines
+	for y := startY + 1; y < endY; y++ {
+		var middleLine []rune
+		for x := 0; x < screen.Cols; x++ {
+			cell := screen.Cells[y*screen.Cols+x]
+			middleLine = append(middleLine, cell.Rune)
+		}
+		lines = append(lines, strings.TrimRight(string(middleLine), " "))
+	}
+
+	// Last line: from start of line to endX
+	var lastLine []rune
+	for x := 0; x <= endX; x++ {
+		cell := screen.Cells[endY*screen.Cols+x]
+		lastLine = append(lastLine, cell.Rune)
+	}
+	lines = append(lines, strings.TrimRight(string(lastLine), " "))
+
+	return strings.Join(lines, "\n")
+}
+
+// IsValid reports whether the selection has at least one character.
+func (ts *TextSelection) IsValid() bool {
+	return ts.StartX != ts.EndX || ts.StartY != ts.EndY
+}
+
+// IsEmpty reports whether the selection has zero area.
+func (ts *TextSelection) IsEmpty() bool {
+	return ts.StartX == ts.EndX && ts.StartY == ts.EndY
+}
+
+// SetFromCoords sets the selection from start and end coordinates.
+// This is a convenience method for setting both start and end at once.
+func (ts *TextSelection) SetFromCoords(startX, startY, endX, endY int) {
+	ts.StartX = startX
+	ts.StartY = startY
+	ts.EndX = endX
+	ts.EndY = endY
+}
