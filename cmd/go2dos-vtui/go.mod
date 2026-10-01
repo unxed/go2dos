@@ -6,6 +6,7 @@ require (
 	github.com/unxed/go2dos v0.0.0
 	github.com/unxed/vtinput v0.1.10
 	github.com/unxed/vtui v0.1.390
+	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
 )
 
@@ -47,7 +48,6 @@ require (
 	golang.org/x/image v0.45.0 // indirect
 	golang.org/x/mobile v0.0.0-20230301163155-e0f57694e12c // indirect
 	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 )
 
