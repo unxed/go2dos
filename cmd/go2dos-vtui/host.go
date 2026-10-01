@@ -23,7 +23,11 @@ type host struct {
 func newHost(scr *vtui.ScreenBuf) *host { return &host{scr: scr} }
 
 // Draw gets the screen snapshot from the machine goroutine.
-func (h *host) Draw(s *bios.Screen) {}
+func (h *host) Draw(s *bios.Screen) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	renderScreen(h.scr, s)
+}
 
 func (h *host) Start(m *machine.Machine, display string, stop func(dump bool)) (func(), error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
@@ -34,8 +38,6 @@ func (h *host) Start(m *machine.Machine, display string, stop func(dump bool)) (
 		return nil, err
 	}
 	os.Stdout.WriteString("\x1b[?1049h\x1b[2J")
-	h.scr.AllocBuf(80, 25)
-	h.scr.Flush()
 	go h.readKeys(vtinput.NewReader(os.Stdin, false), m, stop)
 	return func() {
 		os.Stdout.WriteString("\x1b[0m\x1b[?25h\x1b[?1049l")
