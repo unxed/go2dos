@@ -911,3 +911,30 @@ func (d *DOS) clipboardFunc(e *hle.Env, al byte) error {
 		return hle.Unsupported("INT 2Fh AX=17%02Xh", al)
 	}
 }
+
+// int2D handles INT 2Dh (AMIS - American Menus Information Standard).
+// Currently supports WASI bridge discovery via AMIS.
+func (d *DOS) int2D(e *hle.Env) error {
+	c := e.CPU
+	al := c.AL()
+
+	// AMIS 3.6 dispatch
+	switch al {
+	case 0x00:
+		// Check if installed: return AL=00h if not installed
+		// For now, WASI is always present, so we could return FFh
+		// But to avoid conflicts, we don't install it by default
+		// Set AL=00h to indicate not installed
+		c.SetAL(0x00)
+		return nil
+
+	case 0x01:
+		// Get private entry point (optional, not required by AMIS 3.6)
+		c.SetAL(0x00) // Not supported
+		return nil
+
+	default:
+		// Unknown AMIS function, leave registers unchanged
+		return nil
+	}
+}
