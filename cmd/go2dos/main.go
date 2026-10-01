@@ -78,23 +78,15 @@ func run() int {
 	}
 
 	interactive := !*headless
+	pipeMode := false
 	if interactive && !term.IsTerminal(int(os.Stdin.Fd())) {
-		return fail(errors.New("stdin is not a terminal; use -headless"))
+		pipeMode = true
 	}
 	var rend *renderer
-	if interactive {
+	if interactive && !pipeMode {
 		rend = newRenderer(os.Stdout)
 	}
-	cfg := machine.Config{Drives: drives, Codepage: *cpNum, Lenient: *lenient, TraceLog: traceW, TraceFilter: filter}
-	if *size != "" {
-		w, h, ok := strings.Cut(*size, "x")
-		cols, err1 := strconv.Atoi(w)
-		rows, err2 := strconv.Atoi(h)
-		if !ok || err1 != nil || err2 != nil {
-			return fail(fmt.Errorf("bad -size %q (want WxH, for example 132x43)", *size))
-		}
-		cfg.Cols, cfg.Rows = cols, rows
-	}
+	cfg := machine.Config{Drives: drives, Codepage: *cpNum, Lenient: *lenient, TraceLog: traceW, TraceFilter: filter, Pipe: pipeMode}
 	for _, b := range strings.Split(*brk, ",") {
 		if b == "" {
 			continue
@@ -145,7 +137,7 @@ func run() int {
 	go func() { <-sig; cancel() }()
 
 	wantDump := *dumpOnExit
-	if interactive {
+	if interactive && !pipeMode {
 		restore, err := setupTerminal(*display != "console")
 		if err != nil {
 			return fail(err)
