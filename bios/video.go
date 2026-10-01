@@ -97,36 +97,75 @@ func (v *Video) cellAddr(page byte, row, col int) uint32 {
 
 func (v *Video) setMode(m byte, clear bool) error {
 	cols := 80
+	isGraphics := false
+
 	switch m {
 	case 0, 1:
 		cols = 40
 	case 2, 3, 7:
+		// Text modes
+	case 0x04, 0x05:
+		// CGA 320x200 4-color graphics mode
+		isGraphics = true
+		cols = 40
+	case 0x06:
+		// CGA 640x200 2-color graphics mode
+		isGraphics = true
+		cols = 80
+	case 0x13:
+		// VGA 320x200 256-color graphics mode
+		isGraphics = true
+		cols = 40
 	default:
-		return hle.Unsupported("video mode %02Xh (only text modes 0-3 and 7)", m)
+		return hle.Unsupported("video mode %02Xh (text modes 0-3,7 or graphics modes 4-6,13h)", m)
 	}
+
 	v.w8(bdaVideoMode, m)
 	v.w16(bdaCols, uint16(cols))
-	if cols == 40 {
-		v.w16(bdaPageSize, 0x0800)
+
+	if isGraphics {
+		// Graphics mode setup
+		modes := SupportedGraphicsModes()
+		gm := modes[m]
+		v.w16(bdaPageSize, uint16(gm.MemSize / 256))
+		v.w16(bdaPageStart, 0)
+		v.w8(bdaActivePage, 0)
+		v.w8(bdaRows, 25-1)
+		v.w8(bdaCharHeight, 8)
+		v.w16(bdaCRTCBase, 0x3D4)
+		v.w8(bdaModeCtl, 0x29)
+		v.w8(bdaPalette, 0x30)
+		v.w8(bdaEGAMisc, 0x60)
+		v.w8(bdaVGAFlags, 0x11)
+		v.crtc[0x0C], v.crtc[0x0D] = 0, 0
+		// Hide cursor in graphics mode
+		v.w16(bdaCursorType, 0x2000)
+		v.crtc[0x0A], v.crtc[0x0B] = 0x20, 0
 	} else {
-		v.w16(bdaPageSize, 0x1000)
+		// Text mode setup
+		if cols == 40 {
+			v.w16(bdaPageSize, 0x0800)
+		} else {
+			v.w16(bdaPageSize, 0x1000)
+		}
+		v.w16(bdaPageStart, 0)
+		v.w8(bdaActivePage, 0)
+		v.w8(bdaRows, 24)
+		v.w8(bdaCharHeight, 16)
+		v.w16(bdaCRTCBase, 0x3D4)
+		v.w8(bdaModeCtl, 0x29)
+		v.w8(bdaPalette, 0x30)
+		v.w8(bdaEGAMisc, 0x60)
+		v.w8(bdaVGAFlags, 0x11)
+		v.crtc[0x0C], v.crtc[0x0D] = 0, 0
+		shape := uint16(0x0607)
+		if m == 7 {
+			shape = 0x0B0C
+		}
+		v.w16(bdaCursorType, shape)
+		v.crtc[0x0A], v.crtc[0x0B] = byte(shape>>8), byte(shape)
 	}
-	v.w16(bdaPageStart, 0)
-	v.w8(bdaActivePage, 0)
-	v.w8(bdaRows, 24)
-	v.w8(bdaCharHeight, 16)
-	v.w16(bdaCRTCBase, 0x3D4)
-	v.w8(bdaModeCtl, 0x29)
-	v.w8(bdaPalette, 0x30)
-	v.w8(bdaEGAMisc, 0x60)
-	v.w8(bdaVGAFlags, 0x11)
-	v.crtc[0x0C], v.crtc[0x0D] = 0, 0
-	shape := uint16(0x0607)
-	if m == 7 {
-		shape = 0x0B0C
-	}
-	v.w16(bdaCursorType, shape)
-	v.crtc[0x0A], v.crtc[0x0B] = byte(shape>>8), byte(shape)
+
 	for p := byte(0); p < 8; p++ {
 		v.setCursor(p, 0, 0)
 	}
@@ -137,8 +176,15 @@ func (v *Video) setMode(m byte, clear bool) error {
 		}
 	}
 	if clear {
-		for a := v.base(); a < v.base()+0x8000; a += 2 {
-			v.e.Mem.W16(a, 0x0720)
+		clearAddr := v.base()
+		clearSize := uint32(0x8000)
+		// For graphics mode 13h, clear from A0000h instead
+		if m == 0x13 {
+			clearAddr = 0xA0000
+			clearSize = 0x10000
+		}
+		for a := clearAddr; a < clearAddr+clearSize; a++ {
+			v.e.Mem.W8(a, 0)
 		}
 	}
 	v.crtcGen++
@@ -482,4 +528,11 @@ func (v *Video) Snapshot() *Screen {
 		s.Wrapped[i] = v.wrapped[page][i]
 	}
 	return s
+}
+
+// IsGraphicsMode returns true if the current video mode is a graphics mode.
+func (v *Video) IsGraphicsMode() bool {
+	modes := SupportedGraphicsModes()
+	_, ok := modes[v.mode()]
+	return ok
 }
