@@ -17,9 +17,6 @@ const (
 	devNone device = iota
 	devCON
 	devNUL
-	devStdIn  // pipe mode: stdin
-	devStdOut // pipe mode: stdout
-	devStdErr // pipe mode: stderr
 )
 
 type openFile struct {
@@ -220,14 +217,6 @@ func (d *DOS) read(h uint16, buf []byte) (int, uint16) {
 		return 0, 0
 	case devCON:
 		return d.conRead(buf)
-	case devStdIn:
-		if d.pipe {
-			return d.pipeRead(buf)
-		}
-		return 0, errAccess
-	case devStdOut, devStdErr:
-		// Writing to stdout/stderr from read is an error
-		return 0, errAccess
 	}
 	n, err := of.f.Read(buf)
 	if err != nil && err != io.EOF {
@@ -247,19 +236,6 @@ func (d *DOS) write(h uint16, buf []byte) (int, uint16) {
 	case devCON:
 		d.conWrite(buf)
 		return len(buf), 0
-	case devStdOut:
-		if d.pipe {
-			return d.pipeWrite(buf, os.Stdout)
-		}
-		return 0, errAccess
-	case devStdErr:
-		if d.pipe {
-			return d.pipeWrite(buf, os.Stderr)
-		}
-		return 0, errAccess
-	case devStdIn:
-		// Reading from stdin for write is an error
-		return 0, errAccess
 	}
 	if len(buf) == 0 { // DOS: a zero-length write truncates at the current position
 		pos, _ := of.f.Seek(0, io.SeekCurrent)

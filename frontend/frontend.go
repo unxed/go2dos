@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -36,6 +37,16 @@ type Host interface {
 	// returned function restores the terminal; Run calls it after the
 	// machine stops.
 	Start(m *machine.Machine, display string, stop func(dump bool)) (restore func(), err error)
+}
+
+// Attacher is implemented by hosts that can hand the terminal to a host
+// command (docs/HOSTEXEC.md, the overlay mode): RunAttached pauses key input,
+// restores the terminal's normal state, runs cmd on it and takes the terminal
+// back; Attached reports whether cmd is running now (Run's SIGINT handler then
+// leaves Ctrl-C to the command). Call RunAttached from the machine goroutine.
+type Attacher interface {
+	RunAttached(cmd *exec.Cmd) error
+	Attached() bool
 }
 
 // Console is implemented by hosts that support the "console" display mode:
@@ -66,6 +77,8 @@ type Options struct {
 	Watch       string
 	Break       string
 	Display     string
+	Size        string
+	HostExec    bool
 }
 
 type driveFlags map[byte]string
@@ -102,6 +115,8 @@ func RegisterFlags(fs *flag.FlagSet, terminal bool) *Options {
 	fs.BoolVar(&o.Lenient, "lenient", false, "answer unsupported BIOS/DOS calls \"not supported\" instead of stopping; print a summary at the end")
 	fs.BoolVar(&o.NoLFN, "nolfn", false, "switch the long file name API (INT 21h AH=71h) off: every 71xx call answers \"not supported\"")
 	fs.StringVar(&o.Watch, "watch", "", "log writes to these comma-separated addresses: linear hex or SEG:OFF, optionally /N bytes (with -trace or in dumps)")
+	fs.BoolVar(&o.HostExec, "host-exec", false, "let the built-in COMMAND.COM run host commands (a line starting with \"!\", or a command in the host PATH); leaves the sandbox")
+	fs.StringVar(&o.Size, "size", "", "text screen size `WxH` (columns 80-255, rows 25-255, at most 32768 cells; default 80x25)")
 	fs.StringVar(&o.Break, "break", "", "log registers when execution reaches these comma-separated SEG:OFF hex addresses")
 	return o
 }
@@ -147,7 +162,16 @@ func Run(o *Options, args []string, host Host) int {
 		filter = strings.Split(o.TraceFilter, ",")
 	}
 
-	cfg := machine.Config{Drives: drives, Codepage: o.Codepage, Lenient: o.Lenient, NoLFN: o.NoLFN, TraceLog: traceW, TraceFilter: filter}
+	cfg := machine.Config{Drives: drives, Codepage: o.Codepage, Lenient: o.Lenient, NoLFN: o.NoLFN, HostExec: o.HostExec, TraceLog: traceW, TraceFilter: filter}
+	if o.Size != "" {
+		w, h, ok := strings.Cut(o.Size, "x")
+		cols, err1 := strconv.Atoi(w)
+		rows, err2 := strconv.Atoi(h)
+		if !ok || err1 != nil || err2 != nil {
+			return Fail(fmt.Errorf("bad -size %q (want WxH, for example 132x43)", o.Size))
+		}
+		cfg.Cols, cfg.Rows = cols, rows
+	}
 	for _, b := range strings.Split(o.Break, ",") {
 		if b == "" {
 			continue
@@ -201,7 +225,16 @@ func Run(o *Options, args []string, host Host) int {
 	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
-	go func() { <-sig; cancel() }()
+	att, _ := host.(Attacher)
+	go func() {
+		for range sig {
+			if att != nil && att.Attached() {
+				continue // Ctrl-C belongs to the host command
+			}
+			cancel()
+			return
+		}
+	}()
 
 	wantDump := o.DumpOnExit
 	restore := func() {}

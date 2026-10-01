@@ -65,8 +65,7 @@ type Video struct {
 	// Stream, if set, receives every character written through the
 	// teletype (the stream channel, as opposed to direct video writes).
 	Stream    func(ch byte)
-	hleWrites uint32      // video page writes made by the teletype itself
-	wrapped   [8][50]bool // wrapped[page][row] = true if the line is continued on the next line
+	hleWrites uint32 // video page writes made by the teletype itself
 }
 
 // wrapMark says that a row continues on the next one. It carries the sum of
@@ -150,95 +149,53 @@ func (v *Video) SetTextSize(cols, rows int) error {
 }
 
 func (v *Video) setMode(m byte, clear bool) error {
-	cols := 80
-	isGraphics := false
-
+	cols, rows, height := 80, 25, 16
 	switch m {
 	case 0, 1:
 		cols = 40
 	case 2, 3, 7:
-		// Text modes
-	case 0x04, 0x05:
-		// CGA 320x200 4-color graphics mode
-		isGraphics = true
-		cols = 40
-	case 0x06:
-		// CGA 640x200 2-color graphics mode
-		isGraphics = true
-		cols = 80
-	case 0x13:
-		// VGA 320x200 256-color graphics mode
-		isGraphics = true
-		cols = 40
+		if v.cfgCols != 0 {
+			cols, rows = v.cfgCols, v.cfgRows
+		}
 	default:
-		return hle.Unsupported("video mode %02Xh (text modes 0-3,7 or graphics modes 4-6,13h)", m)
+		return hle.Unsupported("video mode %02Xh (only text modes 0-3 and 7)", m)
 	}
-
+	if rows > 25 {
+		height = 8 // the 43/50-line modes use the 8x8 font
+	}
 	v.w8(bdaVideoMode, m)
 	v.w16(bdaCols, uint16(cols))
-
-	if isGraphics {
-		// Graphics mode setup
-		modes := SupportedGraphicsModes()
-		gm := modes[m]
-		v.w16(bdaPageSize, uint16(gm.MemSize / 256))
-		v.w16(bdaPageStart, 0)
-		v.w8(bdaActivePage, 0)
-		v.w8(bdaRows, 25-1)
-		v.w8(bdaCharHeight, 8)
-		v.w16(bdaCRTCBase, 0x3D4)
-		v.w8(bdaModeCtl, 0x29)
-		v.w8(bdaPalette, 0x30)
-		v.w8(bdaEGAMisc, 0x60)
-		v.w8(bdaVGAFlags, 0x11)
-		v.crtc[0x0C], v.crtc[0x0D] = 0, 0
-		// Hide cursor in graphics mode
-		v.w16(bdaCursorType, 0x2000)
-		v.crtc[0x0A], v.crtc[0x0B] = 0x20, 0
-	} else {
-		// Text mode setup
-		if cols == 40 {
-			v.w16(bdaPageSize, 0x0800)
-		} else {
-			v.w16(bdaPageSize, 0x1000)
-		}
-		v.w16(bdaPageStart, 0)
-		v.w8(bdaActivePage, 0)
-		v.w8(bdaRows, 24)
-		v.w8(bdaCharHeight, 16)
-		v.w16(bdaCRTCBase, 0x3D4)
-		v.w8(bdaModeCtl, 0x29)
-		v.w8(bdaPalette, 0x30)
-		v.w8(bdaEGAMisc, 0x60)
-		v.w8(bdaVGAFlags, 0x11)
-		v.crtc[0x0C], v.crtc[0x0D] = 0, 0
-		shape := uint16(0x0607)
-		if m == 7 {
-			shape = 0x0B0C
-		}
-		v.w16(bdaCursorType, shape)
-		v.crtc[0x0A], v.crtc[0x0B] = byte(shape>>8), byte(shape)
+	// The regeneration buffer size is rounded up to 256 bytes: 0800h for
+	// 40x25, 1000h for 80x25 and 2000h for 80x50, as the BIOS reports.
+	v.w16(bdaPageSize, uint16((cols*rows*2+0xFF)&^0xFF))
+	v.w16(bdaPageStart, 0)
+	v.w8(bdaActivePage, 0)
+	v.w8(bdaRows, byte(rows-1))
+	v.w8(bdaCharHeight, byte(height))
+	// CRTC: displayed characters, scan lines per character, the lines of
+	// the screen (low 8 bits and the two overflow bits) and the row offset.
+	lines := rows*height - 1
+	v.crtc[0x01], v.crtc[0x09], v.crtc[0x12], v.crtc[0x13] = byte(cols-1), byte(height-1), byte(lines), byte(cols/2)
+	v.crtc[0x07] = byte(lines>>8&1)<<1 | byte(lines>>9&1)<<6
+	v.w16(bdaCRTCBase, 0x3D4)
+	v.w8(bdaModeCtl, 0x29)
+	v.w8(bdaPalette, 0x30)
+	v.w8(bdaEGAMisc, 0x60)
+	v.w8(bdaVGAFlags, 0x11)
+	v.crtc[0x0C], v.crtc[0x0D] = 0, 0
+	shape := uint16(0x0607)
+	if m == 7 {
+		shape = 0x0B0C
 	}
-
+	v.w16(bdaCursorType, shape)
+	v.crtc[0x0A], v.crtc[0x0B] = byte(shape>>8), byte(shape)
 	for p := byte(0); p < 8; p++ {
 		v.setCursor(p, 0, 0)
 	}
-	// Clear wrapped flags when mode changes.
-	for p := byte(0); p < 8; p++ {
-		for r := 0; r < 50; r++ {
-			v.wrapped[p][r] = false
-		}
-	}
 	if clear {
-		clearAddr := v.base()
-		clearSize := uint32(0x8000)
-		// For graphics mode 13h, clear from A0000h instead
-		if m == 0x13 {
-			clearAddr = 0xA0000
-			clearSize = 0x10000
-		}
-		for a := clearAddr; a < clearAddr+clearSize; a++ {
-			v.e.Mem.W8(a, 0)
+		v.wraps = [8][256]wrapMark{}
+		for a := v.base(); a < v.base()+0x10000 && a < videoEnd; a += 2 {
+			v.e.Mem.W16(a, 0x0720)
 		}
 	}
 	v.crtcGen++
@@ -293,15 +250,6 @@ func (v *Video) scroll(up bool, lines, attr byte, top, left, bottom, right int) 
 				val = v.e.Mem.R16(v.cellAddr(page, src, col))
 			}
 			v.e.Mem.W16(v.cellAddr(page, row, col), val)
-		}
-		// Move wrapped flag along with the line content.
-		// Only copy wrapped flag if scrolling the full line width.
-		if left == 0 && right == cols-1 {
-			if (up && src <= bottom) || (!up && src >= top) {
-				v.wrapped[page][row] = v.wrapped[page][src]
-			} else {
-				v.wrapped[page][row] = false
-			}
 		}
 	}
 }
@@ -621,17 +569,5 @@ func (v *Video) Snapshot() *Screen {
 		s.CursorX, s.CursorY = pos%s.Cols, pos/s.Cols
 		s.CursorVisible = v.crtc[0x0A]&0x20 == 0 && v.crtc[0x0A]&0x1F <= v.crtc[0x0B]&0x1F
 	}
-	page := v.b8(bdaActivePage)
-	s.Wrapped = make([]bool, s.Rows)
-	for i := 0; i < s.Rows; i++ {
-		s.Wrapped[i] = v.wrapped[page][i]
-	}
 	return s
-}
-
-// IsGraphicsMode returns true if the current video mode is a graphics mode.
-func (v *Video) IsGraphicsMode() bool {
-	modes := SupportedGraphicsModes()
-	_, ok := modes[v.mode()]
-	return ok
 }

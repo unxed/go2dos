@@ -46,9 +46,6 @@ JWasm собирается из исходников (Sybase Open Watcom Public 
   `.DATA`/`.CONST` не сбрасывают `ASSUME CS`.
 - `patches/vc-4.05-jwasm.patch` — перенос 4.05 с синтаксиса TASM на JWasm
   (54 изменённые строки в 8 файлах, функциональных изменений нет).
-- `patches/vc-4.99.09-psp-startmain.patch` — передача `StartMain` в PSP[0x90]
-  (1 строка, добавлены 8 байт заполнения); исправляет передачу адреса входа
-  оверлея при копировании структуры OvlPrm как командной строки в PSP ребёнка.
 - `LICENSE`, `NOTICE`.
 
 Патчи — байтовые (`.gitattributes`: `-text`): исходники VC в CP866 с CRLF.

@@ -1,20 +1,12 @@
 package dos
 
 import (
-	"io"
-	"os"
-
 	"github.com/unxed/go2dos/cpu"
 	"github.com/unxed/go2dos/hle"
 )
 
 // conWrite writes to the console with CON cooked-mode semantics (TAB expansion).
 func (d *DOS) conWrite(b []byte) {
-	// In pipe mode, write to host stdout instead of video
-	if d.pipe {
-		d.pipeWrite(b, os.Stdout)
-		return
-	}
 	v := d.b.Video
 	page := v.ActivePage()
 	for _, ch := range b {
@@ -215,29 +207,4 @@ func (d *DOS) charFunc(e *hle.Env, ah byte) error {
 		}
 	}
 	return nil
-}
-
-// pipeRead reads from host stdin and translates UTF-8 to OEM.
-func (d *DOS) pipeRead(buf []byte) (int, uint16) {
-	// Read UTF-8 data from stdin
-	n, err := os.Stdin.Read(buf)
-	if err != nil && err != io.EOF {
-		return n, errAccess
-	}
-	// Translate UTF-8 to OEM using the codepage
-	// For now, treat bytes as-is (assuming host is in OEM)
-	// TODO: proper UTF-8 to OEM translation
-	return n, 0
-}
-
-// pipeWrite writes to host stdout/stderr and translates OEM to UTF-8.
-func (d *DOS) pipeWrite(buf []byte, out *os.File) (int, uint16) {
-	// Translate OEM to UTF-8 using the codepage
-	// For now, write bytes as-is (assuming host is in OEM)
-	// TODO: proper OEM to UTF-8 translation
-	n, err := out.Write(buf)
-	if err != nil {
-		return n, errAccess
-	}
-	return n, 0
 }
