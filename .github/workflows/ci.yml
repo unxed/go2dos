@@ -51,3 +51,35 @@ jobs:
       - run: go test -run TestSingleStep8088 ./cpu/
         env:
           GO2DOS_SST_DIR: .cache/sst
+
+  # Сопровождаемая сборка VC свободными средствами (JWasm вместо TASM):
+  # tools/build-vc.sh, third_party/vc/README.md, docs/VC-BUILD.md.
+  build-vc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get install -y -qq nasm
+      - name: Эталон (собран TASM, ddanila/vc latest-build)
+        run: sh tools/fetch-vc.sh .cache/vc
+      - name: Сборка VC 4.05 и 4.99.09 (JWasm)
+        run: sh tools/build-vc.sh -c .cache/vc .cache/vc-build
+      - name: Различия с TASM по дизассемблированию (VC.COM 4.05)
+        run: python3 tools/vc-diff.py .cache/vc-build/bin/4.05/VC.COM .cache/vc/4.05/VC.COM
+      - name: e2e на собранном VC 4.05
+        run: go test -v -run TestVC405 ./e2e/
+        env:
+          # go test работает в каталоге e2e/, поэтому путь абсолютный
+          GO2DOS_VC_DIR: ${{ github.workspace }}/.cache/vc-build/bin
+      - name: e2e на эталонном VC 4.05 (контроль)
+        if: always()
+        continue-on-error: true
+        run: go test -v -run TestVC405 ./e2e/
+        env:
+          GO2DOS_VC_DIR: ${{ github.workspace }}/.cache/vc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vc-jwasm
+          path: .cache/vc-build/bin/

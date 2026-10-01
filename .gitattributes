@@ -2,3 +2,5 @@
 *.COM binary
 *.exe binary
 *.bin binary
+# патчи содержат CRLF и CP866 исходников: не трогать окончания строк
+third_party/vc/patches/* -text
