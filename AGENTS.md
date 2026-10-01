@@ -2,7 +2,7 @@
 
 Прочитай этот файл целиком, потом — `README.md`, `docs/DESIGN.md` (статус в
 §13), `docs/DOUBTS.md` (открытые расследования), `docs/UTF8NAMES.md`,
-`docs/WASI-BRIDGE.md`, `docs/TRANSLATION.md`, `docs/DN-PLAN.md`,
+`docs/SCREEN.md`, `docs/WASI-BRIDGE.md`, `docs/TRANSLATION.md`, `docs/DN-PLAN.md`,
 `docs/NC-TESTING.md`.
 
 ## Правила работы с владельцем
@@ -99,7 +99,10 @@ ndisasm -b16 -o0xOFF -e$((0xSEG*16+0xOFF)) /tmp/go2dos-dump-*/memory.bin | head
    UTF-8 именами (DESIGN §18).
 6. Провайдер UTF-8 имён (`docs/UTF8NAMES.md`) и клиент в VC.
 7. `COMMAND.COM` (FreeCOM) для командной строки VC/NC.
-8. Мост DOS → WASI (M11): `docs/WASI-BRIDGE.md` — решение, архитектура,
+8. Экран (M10b): окно любого размера, режим консоли хоста, склейка длинных
+   строк (`docs/SCREEN.md`). Ключ — разделить поток (телетайп) и сетку
+   (видеопамять).
+8a. Мост DOS → WASI (M11): `docs/WASI-BRIDGE.md` — решение, архитектура,
    план W0–W7. Исследование R1–R5 можно делать в любой момент, реализацию —
    после UTF-8 имён (M10). UTF-8 имена мостом не заменять.
 9. go2dos под wasm-рантаймом и в браузере (M12).
