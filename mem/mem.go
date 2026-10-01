@@ -12,7 +12,7 @@ const (
 
 	romStart  = 0xF0000
 	romEnd    = 0x100000
-	holeStart = 0xC0000 // option ROM / UMB window: unmapped in the PoC
+	holeStart = 0xC8000 // option ROM / UMB window: unmapped in the PoC; below it the 64 KiB video window B8000-C7FFF
 )
 
 // Memory is the emulated physical memory.

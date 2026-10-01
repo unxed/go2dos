@@ -1,6 +1,7 @@
 package bios
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/unxed/go2dos/cpu"
@@ -37,6 +38,14 @@ const (
 	bdaKbdFlags3  = 0x496
 )
 
+// The video window: B0000-C7FFF, 96 KiB. Monochrome text uses B0000, color
+// text B8000 and up; a text screen of any size (SetTextSize) may take the 64
+// KiB from B8000 to C7FFF, that is 32768 cells.
+const (
+	videoStart = 0xB0000
+	videoEnd   = 0xC8000
+)
+
 // Video implements INT 10h and the CRTC/status ports of a VGA in text mode.
 type Video struct {
 	e       *hle.Env
@@ -45,6 +54,14 @@ type Video struct {
 	crtcGen uint32
 	reads   uint32 // input status reads, the clock of the retrace model
 
+	// cfgCols and cfgRows set the size of the 80-column text modes (2, 3, 7);
+	// zero means the standard 80x25 (SetTextSize).
+	cfgCols, cfgRows int
+
+	// wraps marks rows that the teletype continued on the next row at the
+	// right edge, per page (Snapshot.Wrapped, Screen.Text).
+	wraps [8][256]wrapMark
+
 	// Stream, if set, receives every character written through the
 	// teletype (the stream channel, as opposed to direct video writes).
 	Stream    func(ch byte)
@@ -52,10 +69,36 @@ type Video struct {
 	wrapped   [8][50]bool // wrapped[page][row] = true if the line is continued on the next line
 }
 
+// wrapMark says that a row continues on the next one. It carries the sum of
+// the row as it was marked: a row that is written to later (the program draws
+// over it, or a scroll by a program moves other text into it) no longer
+// matches its sum and stops being a continuation. That is the "reset on
+// overwrite" rule without watching every write to video memory.
+type wrapMark struct {
+	set bool
+	sum uint32
+}
+
+// rowSum is the FNV-1a sum of the cells of a row.
+func (v *Video) rowSum(page byte, row int) uint32 {
+	h := uint32(2166136261)
+	a := v.cellAddr(page, row, 0)
+	for i := 0; i < v.cols()*2; i++ {
+		h = (h ^ uint32(v.e.Mem.R8(a+uint32(i)))) * 16777619
+	}
+	return h
+}
+
+func (v *Video) markWrap(page byte, row int) {
+	if row >= 0 && row < 256 {
+		v.wraps[page&7][row] = wrapMark{true, v.rowSum(page, row)}
+	}
+}
+
 // DirectWrites counts writes to video memory not made by the teletype:
 // direct writes by programs and positional BIOS output.
 func (v *Video) DirectWrites() uint32 {
-	return v.e.Mem.RangeWrites(0xB0000, 0xC0000) - v.hleWrites
+	return v.e.Mem.RangeWrites(videoStart, videoEnd) - v.hleWrites
 }
 
 func (v *Video) b8(a uint32) byte       { return v.e.Mem.R8(a) }
@@ -95,26 +138,46 @@ func (v *Video) cellAddr(page byte, row, col int) uint32 {
 	return v.pageAddr(page) + uint32((row*v.cols()+col)*2)
 }
 
+// SetTextSize sets the size of the 80-column text modes and applies it to the
+// current mode. The window is 32768 cells at most; the columns must fit the
+// byte that INT 10h/0Fh returns, the rows the byte at 0040:0084.
+func (v *Video) SetTextSize(cols, rows int) error {
+	if cols < 80 || cols > 255 || rows < 25 || rows > 255 || cols*rows > 0x8000 {
+		return fmt.Errorf("text screen %dx%d: columns 80-255, rows 25-255, at most 32768 cells", cols, rows)
+	}
+	v.cfgCols, v.cfgRows = cols, rows
+	return v.setMode(v.mode(), true)
+}
+
 func (v *Video) setMode(m byte, clear bool) error {
-	cols := 80
+	cols, rows, height := 80, 25, 16
 	switch m {
 	case 0, 1:
 		cols = 40
 	case 2, 3, 7:
+		if v.cfgCols != 0 {
+			cols, rows = v.cfgCols, v.cfgRows
+		}
 	default:
 		return hle.Unsupported("video mode %02Xh (only text modes 0-3 and 7)", m)
 	}
+	if rows > 25 {
+		height = 8 // the 43/50-line modes use the 8x8 font
+	}
 	v.w8(bdaVideoMode, m)
 	v.w16(bdaCols, uint16(cols))
-	if cols == 40 {
-		v.w16(bdaPageSize, 0x0800)
-	} else {
-		v.w16(bdaPageSize, 0x1000)
-	}
+	// The regeneration buffer size is rounded up to 256 bytes: 0800h for
+	// 40x25, 1000h for 80x25 and 2000h for 80x50, as the BIOS reports.
+	v.w16(bdaPageSize, uint16((cols*rows*2+0xFF)&^0xFF))
 	v.w16(bdaPageStart, 0)
 	v.w8(bdaActivePage, 0)
-	v.w8(bdaRows, 24)
-	v.w8(bdaCharHeight, 16)
+	v.w8(bdaRows, byte(rows-1))
+	v.w8(bdaCharHeight, byte(height))
+	// CRTC: displayed characters, scan lines per character, the lines of
+	// the screen (low 8 bits and the two overflow bits) and the row offset.
+	lines := rows*height - 1
+	v.crtc[0x01], v.crtc[0x09], v.crtc[0x12], v.crtc[0x13] = byte(cols-1), byte(height-1), byte(lines), byte(cols/2)
+	v.crtc[0x07] = byte(lines>>8&1)<<1 | byte(lines>>9&1)<<6
 	v.w16(bdaCRTCBase, 0x3D4)
 	v.w8(bdaModeCtl, 0x29)
 	v.w8(bdaPalette, 0x30)
@@ -137,7 +200,8 @@ func (v *Video) setMode(m byte, clear bool) error {
 		}
 	}
 	if clear {
-		for a := v.base(); a < v.base()+0x8000; a += 2 {
+		v.wraps = [8][256]wrapMark{}
+		for a := v.base(); a < v.base()+0x10000 && a < videoEnd; a += 2 {
 			v.e.Mem.W16(a, 0x0720)
 		}
 	}
@@ -163,6 +227,23 @@ func (v *Video) scroll(up bool, lines, attr byte, top, left, bottom, right int) 
 	}
 	page := v.b8(bdaActivePage)
 	blank := uint16(attr)<<8 | 0x20
+	if left == 0 && right == cols-1 { // whole rows: their continuation marks move with them
+		w := &v.wraps[page&7]
+		for i := 0; i < h; i++ {
+			row, src := top+i, top+i+n
+			if !up {
+				row, src = bottom-i, bottom-i-n
+			}
+			if row < 0 || row > 255 {
+				continue
+			}
+			if (up && src <= bottom) || (!up && src >= top) {
+				w[row] = w[src]
+			} else {
+				w[row] = wrapMark{}
+			}
+		}
+	}
 	for i := 0; i < h; i++ {
 		row := top + i
 		src := row + n
@@ -195,9 +276,9 @@ func (v *Video) Teletype(ch byte, page byte) {
 	if v.Stream != nil {
 		v.Stream(ch)
 	}
-	before := v.e.Mem.RangeWrites(0xB0000, 0xC0000)
+	before := v.e.Mem.RangeWrites(videoStart, videoEnd)
 	v.teletype(ch, page)
-	v.hleWrites += v.e.Mem.RangeWrites(0xB0000, 0xC0000) - before
+	v.hleWrites += v.e.Mem.RangeWrites(videoStart, videoEnd) - before
 }
 
 func (v *Video) teletype(ch byte, page byte) {
@@ -219,8 +300,7 @@ func (v *Video) teletype(ch byte, page byte) {
 		v.e.Mem.W8(a, ch)
 		col++
 		if col >= cols {
-			// Mark the line as wrapped (continued on the next line).
-			v.wrapped[page][row] = true
+			v.markWrap(page, row)
 			col = 0
 			row++
 		}
@@ -409,7 +489,9 @@ type Screen struct {
 	CursorY       int
 	CursorVisible bool
 	Version       uint32 // changes whenever video memory or CRTC state changes
-	Wrapped       []bool // wrapped[y] = true if line y continues on line y+1
+	// Wrapped[y] is true if row y was continued on row y+1 by the teletype
+	// (it wrapped at the right edge) and neither row was written to since.
+	Wrapped []bool
 }
 
 // TextMode reports whether the snapshot holds text.
@@ -424,17 +506,37 @@ func (s *Screen) Line(y int) string {
 	return strings.TrimRight(b.String(), " ")
 }
 
-// Text returns the whole screen, one line per row, joining wrapped lines.
+// rowText returns row y with its trailing blanks.
+func (s *Screen) rowText(y int) string {
+	var b strings.Builder
+	for x := 0; x < s.Cols; x++ {
+		b.WriteRune(s.Cells[y*s.Cols+x].Rune)
+	}
+	return b.String()
+}
+
+// Text returns the screen as text, one line per row; a row that the teletype
+// continued on the next one is joined with it, as a terminal emulator copies
+// a wrapped line. TextRows has one line per row without joining.
 func (s *Screen) Text() string {
 	var lines []string
+	cur := ""
 	for y := 0; y < s.Rows; y++ {
-		if y > 0 && len(lines) > 0 && s.Wrapped[y-1] {
-			// This line is a continuation of the previous line.
-			// Append it without newline.
-			lines[len(lines)-1] += s.Line(y)
-		} else {
-			lines = append(lines, s.Line(y))
+		cur += s.rowText(y)
+		if y < len(s.Wrapped) && s.Wrapped[y] && y+1 < s.Rows {
+			continue
 		}
+		lines = append(lines, strings.TrimRight(cur, " "))
+		cur = ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+// TextRows returns the screen with one line per row, wrapped or not.
+func (s *Screen) TextRows() string {
+	lines := make([]string, s.Rows)
+	for y := range lines {
+		lines[y] = s.Line(y)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -456,7 +558,7 @@ func (s *Screen) Region(x, y, w, h int) string {
 // data area and the CRTC registers.
 func (v *Video) Snapshot() *Screen {
 	s := &Screen{Mode: v.mode()}
-	s.Version = v.e.Mem.RangeWrites(0xB0000, 0xC0000) + v.crtcGen
+	s.Version = v.e.Mem.RangeWrites(videoStart, videoEnd) + v.crtcGen
 	switch s.Mode {
 	case 0, 1, 2, 3, 7:
 	default:
@@ -470,6 +572,13 @@ func (v *Video) Snapshot() *Screen {
 		w := v.e.Mem.R16(base + uint32(i*2))
 		ch := byte(w)
 		s.Cells[i] = Cell{Ch: ch, Attr: byte(w >> 8), Rune: v.e.CP.ScreenRune(ch)}
+	}
+	page := v.b8(bdaActivePage)
+	s.Wrapped = make([]bool, s.Rows)
+	for y := 0; y < s.Rows && y < 256; y++ {
+		if m := v.wraps[page&7][y]; m.set && m.sum == v.rowSum(page, y) {
+			s.Wrapped[y] = true
+		}
 	}
 	pos := int(uint32(v.crtc[0x0E])<<8|uint32(v.crtc[0x0F])) - int(start)
 	if pos >= 0 && pos < s.Cols*s.Rows {
