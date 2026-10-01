@@ -66,6 +66,10 @@ type Config struct {
 	HostExec bool
 	// OpenCmd is the opener of START (-open-cmd); empty — the host's default.
 	OpenCmd string
+	// RealNames shows the real names of files instead of their aliases on the screen
+	// (dos.DisplayNames); the program still sees the aliases. Off for the library;
+	// the go2dos front ends turn it on (-real-names).
+	RealNames bool
 	// Lenient makes unsupported INT 21h/10h/15h/16h/... calls non-fatal: they
 	// are written to the trace, answered "not supported" and summed up in
 	// Unsupported. Without it the machine stops on the first one (fail fast).
@@ -477,6 +481,9 @@ func (m *Machine) publishScreen(force bool) {
 		return
 	}
 	s := v.Snapshot()
+	if m.cfg.RealNames && m.DOS != nil {
+		m.DOS.DisplayNames(s)
+	}
 	if s.Version == m.lastVer && m.screen.Load() != nil {
 		return
 	}

@@ -382,3 +382,17 @@ func TestVCNamesLongMode(t *testing.T) {
 		t.Errorf("content of DEST/%q: %q", second, got)
 	}
 }
+
+// Real names on the screen (Config.RealNames, dos.DisplayNames): at CP437 VC shows the
+// alias of "Привет.txt" and "Ünïк.txt"; with the option the screen has the real names.
+// Entering a directory by its real-looking name must still work (the program works on
+// the aliases), so one of the names is a directory.
+func TestVC405RealNamesOnScreen(t *testing.T) {
+	m, err, _ := sessionOpts(t, "4.05",
+		`<waitfor:10Quit><waitfor:Привет   txt><waitfor:Ünïк     txt><F10><waitfor:Do you want to quit><Enter>`,
+		map[string]string{"Привет.txt": "x", "Ünïк.txt": "y"}, machine.Config{RealNames: true})
+	var ex *machine.ExitError
+	if !errors.As(err, &ex) || ex.Code != 0 {
+		t.Fatalf("want exit 0, got %v; screen:\n%s", err, m.Screen().Text())
+	}
+}

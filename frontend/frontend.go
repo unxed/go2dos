@@ -90,6 +90,7 @@ type Options struct {
 	Size        string
 	HostExec    bool
 	OpenCmd     string
+	RealNames   bool
 	// Pipe is pipe mode (docs/SCREEN.md, S1): the program's standard streams
 	// are those of go2dos (UTF-8 on the host, the OEM code page for DOS), no
 	// screen is drawn and no host front end is needed. Ignored with Headless.
@@ -133,6 +134,7 @@ func RegisterFlags(fs *flag.FlagSet, terminal bool) *Options {
 	fs.BoolVar(&o.Lenient, "lenient", false, "answer unsupported BIOS/DOS calls \"not supported\" instead of stopping; print a summary at the end")
 	fs.BoolVar(&o.NoLFN, "nolfn", false, "switch the long file name API (INT 21h AH=71h) off: every 71xx call answers \"not supported\"")
 	fs.StringVar(&o.Watch, "watch", "", "log writes to these comma-separated addresses: linear hex or SEG:OFF, optionally /N bytes (with -trace or in dumps)")
+	fs.BoolVar(&o.RealNames, "real-names", true, "show real file names on the screen instead of the aliases of names that the code page cannot hold (the program still sees the aliases)")
 	fs.StringVar(&o.OpenCmd, "open-cmd", "", "START file: host command that opens it (the path is appended as the last argument); default xdg-open / open / cmd start")
 	fs.BoolVar(&o.HostExec, "host-exec", false, "let the built-in COMMAND.COM run host commands (a line starting with \"!\", or a command in the host PATH); leaves the sandbox")
 	fs.StringVar(&o.Size, "size", "", "text screen size `WxH` (columns 80-255, rows 25-255, at most 32768 cells; default 80x25)")
@@ -182,7 +184,7 @@ func Run(o *Options, args []string, host Host) int {
 		filter = strings.Split(o.TraceFilter, ",")
 	}
 
-	cfg := machine.Config{Drives: drives, Codepage: o.Codepage, Lenient: o.Lenient, NoLFN: o.NoLFN, HostExec: o.HostExec, OpenCmd: o.OpenCmd, TraceLog: traceW, TraceFilter: filter}
+	cfg := machine.Config{Drives: drives, Codepage: o.Codepage, Lenient: o.Lenient, NoLFN: o.NoLFN, HostExec: o.HostExec, OpenCmd: o.OpenCmd, RealNames: o.RealNames, TraceLog: traceW, TraceFilter: filter}
 	cfg.Confine = o.Confine
 	if o.ReadOnly != "" {
 		ro, err := dos.ParseReadOnly(o.ReadOnly)
