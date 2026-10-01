@@ -385,6 +385,16 @@ func (b *BIOS) int15(e *hle.Env) error {
 		}
 		time.Sleep(d)
 		e.SetCF(false)
+	case 0x10:
+		// TopView/DESQview API. AX=1022h BX=0000h is GETVER (RBIL): "BX
+		// nonzero, TopView or compatible loaded". None is, so BX stays 0.
+		// The other AH=10h functions (AL=04h-12h, 26h-2Ah) make DESQview 2.x
+		// pop up "Programming error": nothing to emulate, fail fast.
+		if c.R[cpu.AX] != 0x1022 {
+			return hle.Unsupported("INT 15h AX=%04Xh", c.R[cpu.AX])
+		}
+		c.R[cpu.BX] = 0
+		e.Note("TopView GETVER: not loaded (BX=0)")
 	case 0xC0, 0xC1, 0xC2, 0x87, 0x89, 0xE8, 0x41, 0x64:
 		// Documented "function not supported" answer.
 		c.SetAH(0x86)

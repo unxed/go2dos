@@ -104,3 +104,33 @@ func TestTopViewUpdateIsNoop(t *testing.T) {
 		t.Fatalf("exit code %d, want 0", c)
 	}
 }
+
+// INT 15h AX=1022h BX=0000h (TopView GETVER, RBIL): BX stays 0, "TopView is not
+// loaded"; DN 1.51 asks this at start. Runs without -lenient.
+func TestTopViewGetVerNotLoaded(t *testing.T) {
+	prog := []byte{
+		0xB8, 0x22, 0x10, // mov ax,1022h
+		0xBB, 0x00, 0x00, // mov bx,0
+		0xCD, 0x15, // int 15h
+		0x85, 0xDB, // test bx,bx
+		0x75, 0x05, // jnz bad
+		0xB8, 0x00, 0x4C, 0xCD, 0x21, // mov ax,4C00h; int 21h
+		0xB8, 0x01, 0x4C, 0xCD, 0x21, // bad: mov ax,4C01h; int 21h
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "TV.COM"), prog, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(Config{Drives: map[byte]string{'C': dir}, Codepage: 437})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Load(`C:\TV.COM`, ""); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if c := exitCode(t, m.Run(ctx)); c != 0 {
+		t.Fatalf("exit code %d, want 0", c)
+	}
+}
