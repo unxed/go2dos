@@ -72,6 +72,7 @@ Norton Commander в тестах не используется; как пров�
 - [DOUBTS.md](docs/DOUBTS.md) — сомнения и расследования
 - [UTF8NAMES.md](docs/UTF8NAMES.md) — API UTF-8 имён файлов для DOS (черновик)
 - [SCREEN.md](docs/SCREEN.md) — окно любого размера, консоль хоста, длинные строки
+- [HOSTEXEC.md](docs/HOSTEXEC.md) — команды хоста из DOS: оверлейный режим
 - [WASI-BRIDGE.md](docs/WASI-BRIDGE.md) — мост DOS → WASI: решение и план
 - [TRANSLATION.md](docs/TRANSLATION.md) — трансляция x86 → wasm (JIT и AOT)
 - [DN-PLAN.md](docs/DN-PLAN.md) — Dos Navigator: аудит Turbo Vision, переработка, отдельная TV
