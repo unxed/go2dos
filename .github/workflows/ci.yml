@@ -83,3 +83,31 @@ jobs:
         with:
           name: vc-jwasm
           path: .cache/vc-build/bin/
+
+  # Фронтенд на vtui — вложенный модуль со своим go.mod (docs/FRONTEND.md):
+  # основной модуль vtui не тянет, поэтому проверка отдельная.
+  vtui-frontend:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # без Ebiten, gogpu и Cocoa: терминальному фронтенду они не нужны
+      GOFLAGS: -tags=vtui_noebiten,vtui_nogogpu,vtui_nococoa
+    defaults:
+      run:
+        working-directory: cmd/go2dos-vtui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cmd/go2dos-vtui/go.mod
+          cache-dependency-path: cmd/go2dos-vtui/go.sum
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build -o dist/ .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: go2dos-vtui-${{ matrix.os }}
+          path: cmd/go2dos-vtui/dist/
