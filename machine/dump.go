@@ -12,6 +12,7 @@ import (
 
 	"github.com/unxed/go2dos/bios"
 	"github.com/unxed/go2dos/cpu"
+	"github.com/unxed/go2dos/hle"
 	"github.com/unxed/go2dos/keys"
 )
 
@@ -93,6 +94,11 @@ func (m *Machine) report(reason string) string {
 	w("last HLE calls (oldest first):")
 	for _, r := range m.Env.Trace.Last() {
 		w("  %s", r.String())
+	}
+	if m.cfg.Lenient {
+		w("")
+		w("unsupported calls answered in lenient mode:")
+		b.WriteString(hle.FormatUnsupported(m.Unsupported()))
 	}
 	w("")
 	w("last executed instructions (CS:IP, oldest first; disassemble memory.bin at these addresses):")

@@ -84,6 +84,9 @@ func New(e *hle.Env) *BIOS {
 	e.HookInt(0x12, "int12", func(e *hle.Env) error { e.CPU.R[cpu.AX] = e.Mem.R16(bdaMemSize); return nil })
 	e.HookInt(0x15, "int15", b.int15)
 	e.HookInt(0x16, "int16", b.int16)
+	// Lenient mode: INT 15h answers like its documented "function not
+	// supported" (AH=86h, CF set); the other calls leave the registers alone.
+	e.Fallback("int15", func(e *hle.Env) error { e.CPU.SetAH(0x86); e.SetCF(true); return nil })
 	e.HookInt(0x1A, "int1A", b.int1A)
 	e.HookInt(0x33, "int33", b.int33)
 

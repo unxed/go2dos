@@ -125,6 +125,8 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 	e.HookInt(0x28, "int28", func(e *hle.Env) error { e.Idle(); return nil })
 	e.HookInt(0x29, "int29", func(e *hle.Env) error { d.conWrite([]byte{e.CPU.AL()}); return nil })
 	e.HookInt(0x2F, "int2F", d.int2F)
+	// Lenient mode: an unsupported INT 21h call fails with "invalid function".
+	e.Fallback("int21", func(e *hle.Env) error { d.fail(e, errInvalidFunc); return nil })
 	iret := e.Emit([]byte{0xCF})
 	e.SetVector(0x2A, hle.ROMSeg, iret)
 	return d, nil

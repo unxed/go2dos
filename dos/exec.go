@@ -195,7 +195,7 @@ func (d *DOS) exec(e *hle.Env) error {
 	if im.isEXE {
 		start := psp + 0x10
 		if errc := d.place(im, start, start); errc != 0 {
-			return hle.Unsupported("EXEC: bad EXE relocation table in %s", im.path)
+			return fmt.Errorf("EXEC: bad EXE relocation table in %s", im.path) // a broken file, not an unsupported call
 		}
 		c.SetSeg(cpu.CS, start+im.hdr.CS)
 		c.IP = im.hdr.IP

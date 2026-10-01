@@ -50,6 +50,10 @@ type Config struct {
 	OnScreen func(*bios.Screen)
 	// FrameInterval limits OnScreen calls (default 15ms).
 	FrameInterval time.Duration
+	// Lenient makes unsupported INT 21h/10h/15h/16h/... calls non-fatal: they
+	// are written to the trace, answered "not supported" and summed up in
+	// Unsupported. Without it the machine stops on the first one (fail fast).
+	Lenient bool
 	// Watch lists linear addresses whose writes are logged to the trace
 	// together with the writing instruction (diagnostics).
 	Watch []uint32
@@ -149,6 +153,7 @@ func New(cfg Config) (*Machine, error) {
 	tr := hle.NewTracer(256, cfg.TraceLog, cfg.TraceFilter)
 	m.Env = hle.New(m.CPU, m.Mem, page, cfg.Now, tr)
 	m.Env.Idle = m.idle
+	m.Env.Lenient = cfg.Lenient
 	if cfg.ExecTrace > 0 {
 		m.Env.Event = func(string) {
 			m.execLeft = cfg.ExecTrace
@@ -262,6 +267,10 @@ func (m *Machine) Run(ctx context.Context) error {
 		m.publishScreen(false)
 	}
 }
+
+// Unsupported returns the unsupported calls answered so far in lenient mode
+// (Config.Lenient), one entry per distinct function with a call count.
+func (m *Machine) Unsupported() []hle.UnsupportedCall { return m.Env.Unsupported() }
 
 // pollHost moves host events into the machine: keys and timer ticks.
 func (m *Machine) pollHost() {
