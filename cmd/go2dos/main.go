@@ -66,6 +66,7 @@ func run() int {
 	screenOut := flag.String("screen-out", "", "write the final screen text to `FILE`")
 	record := flag.String("record", "", "write the keys typed in this session as a script to `FILE`")
 	lenient := flag.Bool("lenient", false, "answer unsupported BIOS/DOS calls \"not supported\" instead of stopping; print a summary at the end")
+	hostExec := flag.Bool("host-exec", false, "allow host commands in the shell (! prefix or after DOS search)")
 	watch := flag.String("watch", "", "log writes to these comma-separated addresses: linear hex or SEG:OFF, optionally /N bytes (with -trace or in dumps)")
 	display := flag.String("display", "console", "terminal display: console (command output in the terminal, full-screen programs on the alternate screen) or grid")
 	brk := flag.String("break", "", "log registers when execution reaches these comma-separated SEG:OFF hex addresses")
@@ -111,7 +112,7 @@ func run() int {
 	if interactive {
 		rend = newRenderer(os.Stdout)
 	}
-	cfg := machine.Config{Drives: drives, Codepage: *cpNum, Lenient: *lenient, TraceLog: traceW, TraceFilter: filter}
+	cfg := machine.Config{Drives: drives, Codepage: *cpNum, Lenient: *lenient, HostExec: *hostExec, TraceLog: traceW, TraceFilter: filter}
 	for _, b := range strings.Split(*brk, ",") {
 		if b == "" {
 			continue

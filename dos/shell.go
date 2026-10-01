@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -469,6 +471,20 @@ func (d *DOS) shellRun(e *hle.Env, st *shellState, line string) bool {
 	if line == "" || line[0] == ':' {
 		return false
 	}
+
+	// Check for ! prefix to force host execution.
+	forceHost := false
+	if strings.HasPrefix(line, "!") {
+		if d.hostExec {
+			forceHost = true
+			line = strings.TrimSpace(line[1:])
+		} else {
+			d.shPrint("Host execution is disabled" + crlf)
+			st.level = 255
+			return false
+		}
+	}
+
 	line, redir, ok := splitRedir(line)
 	if !ok {
 		d.shPrint("Pipes are not supported by the built-in COMMAND.COM" + crlf)
@@ -501,7 +517,7 @@ func (d *DOS) shellRun(e *hle.Env, st *shellState, line string) bool {
 		n++
 	}
 	name := upperASCII(tok[:n])
-	if shellInternal[name] && (n == len(tok) || tok[n] == '.' || tok[n] == '\\') {
+	if !forceHost && shellInternal[name] && (n == len(tok) || tok[n] == '.' || tok[n] == '\\') {
 		args := tok[n:] + rest
 		restore, errc := d.redirect(redir)
 		if errc != 0 {
@@ -513,9 +529,26 @@ func (d *DOS) shellRun(e *hle.Env, st *shellState, line string) bool {
 		restore()
 		return false
 	}
-	// Внешняя программа.
+	// Внешняя программа или хост-команда.
 	path, kind := d.findProgram(tok)
 	if kind == "" {
+		// Команда не найдена в DOS. Если включен hostExec, ищем в PATH хоста.
+		if d.hostExec || forceHost {
+			if _, err := findHostCommand(tok); err == nil {
+				// Команда найдена на хосте. Выполняем её.
+				cmd := tok + rest
+				restore, errc := d.redirect(redir)
+				if errc != 0 {
+					d.shPrint("Cannot redirect: " + errText(errc) + crlf)
+					st.level = 1
+					return false
+				}
+				exitCode := d.runHostCommand(cmd)
+				restore()
+				st.level = exitCode
+				return false
+			}
+		}
 		d.shPrint("Bad command or file name" + crlf)
 		st.level = 255
 		return false
@@ -610,6 +643,112 @@ func (d *DOS) findProgram(tok string) (path, kind string) {
 func splitDirLoose(p string) (string, string) {
 	i := strings.LastIndexAny(p, `\:`)
 	return p[:i+1], p[i+1:]
+}
+
+// findHostCommand searches for a command in the host's PATH using exec.LookPath.
+func findHostCommand(tok string) (string, error) {
+	return exec.LookPath(tok)
+}
+
+// runHostCommand executes a command on the host in grid mode (output interception).
+// Output is written to DOS handle 1, redirection is respected.
+// Returns the exit code.
+func (d *DOS) runHostCommand(cmd string) byte {
+	// Get the current DOS directory and convert to a host path.
+	hostCwd := d.dosPathToHostPath()
+
+	// Determine the shell to use based on the OS.
+	var shell string
+	var shellArgs []string
+	if runtime.GOOS == "windows" {
+		shell = "cmd"
+		shellArgs = []string{"/c", cmd}
+	} else {
+		shell = "sh"
+		shellArgs = []string{"-c", cmd}
+	}
+
+	// Create the command with the host shell.
+	c := exec.Command(shell, shellArgs...)
+	c.Dir = hostCwd
+	c.Stdin = os.Stdin
+	c.Env = os.Environ() // Use the host's environment.
+
+	// Use a pipe to capture the output.
+	stdout, err := c.StdoutPipe()
+	if err != nil {
+		return 255
+	}
+	stderr, err := c.StderrPipe()
+	if err != nil {
+		return 255
+	}
+
+	// Start the command.
+	if err := c.Start(); err != nil {
+		return 255
+	}
+
+	// Read from stdout and stderr, writing to DOS handle 1.
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdout.Read(buf)
+			if n > 0 {
+				d.write(1, buf[:n])
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stderr.Read(buf)
+			if n > 0 {
+				d.write(1, buf[:n])
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	// Wait for the command to finish.
+	err = c.Wait()
+	if err != nil {
+		if exErr, ok := err.(*exec.ExitError); ok {
+			// Return the exit code from the process.
+			return byte(exErr.ExitCode())
+		}
+		// Return 255 for other errors.
+		return 255
+	}
+	return 0
+}
+
+// dosPathToHostPath converts the current DOS path to a host path.
+// If the DOS path cannot be resolved, it returns the current working directory of the host.
+func (d *DOS) dosPathToHostPath() string {
+	// Get the current drive and path from DOS.
+	drive := d.fs.cur
+	if drive >= 0 && drive < len(d.fs.drives) {
+		hostDrive := d.fs.drives[drive]
+		if hostDrive != "" {
+			// Get the current DOS directory.
+			cwd := d.fs.cwd[drive]
+			// Convert to host path by concatenating with the drive root.
+			return strings.TrimRight(hostDrive, "/\\") + "/" + strings.TrimLeft(cwd, "/\\")
+		}
+	}
+	// Fallback to the current working directory.
+	wd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return wd
 }
 
 func (d *DOS) runBat(st *shellState, path, name, tail string) {
