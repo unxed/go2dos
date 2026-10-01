@@ -776,14 +776,10 @@ func isSep(c byte) bool {
 // unchanged, which is the "not installed" answer to installation checks.
 func (d *DOS) int2F(e *hle.Env) error {
 	c := e.CPU
-	ax := c.R[cpu.AX]
-
-	// WinOldAp clipboard (INT 2Fh/17xx)
-	if (ax & 0xFF00) == 0x1700 {
-		return d.clipboardFunc(e, byte(ax))
+	if ok, err := d.winOldAp(e); ok {
+		return err
 	}
-
-	switch ax {
+	switch c.R[cpu.AX] {
 	case 0x1680: // release time slice
 		e.Idle()
 		c.SetAL(0)

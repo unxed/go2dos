@@ -23,6 +23,9 @@ import (
 	"github.com/unxed/go2dos/mem"
 )
 
+// Clipboard is the host clipboard (see dos.Clipboard).
+type Clipboard = dos.Clipboard
+
 // Config configures a machine.
 type Config struct {
 	// Drives maps drive letters to host directories; at least one is needed.
@@ -50,6 +53,9 @@ type Config struct {
 	OnScreen func(*bios.Screen)
 	// FrameInterval limits OnScreen calls (default 15ms).
 	FrameInterval time.Duration
+	// Clipboard is the host clipboard for the WinOldAp server (INT 2Fh
+	// AX=17xxh); nil leaves the API "not installed".
+	Clipboard Clipboard
 	// Lenient makes unsupported INT 21h/10h/15h/16h/... calls non-fatal: they
 	// are written to the trace, answered "not supported" and summed up in
 	// Unsupported. Without it the machine stops on the first one (fail fast).
@@ -216,7 +222,7 @@ func New(cfg Config) (*Machine, error) {
 		env = []string{`COMSPEC=C:\COMMAND.COM`, `PATH=C:\`, `PROMPT=$P$G`}
 	}
 	m.DOS, err = dos.New(m.Env, m.BIOS, dos.Config{Drives: cfg.Drives, Current: cfg.Drive, Env: env, Labels: cfg.Labels, NoLFN: cfg.NoLFN,
-		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect})
+		NotReady: cfg.NotReady, WriteProtect: cfg.WriteProtect, Clipboard: cfg.Clipboard})
 	if err != nil {
 		return nil, err
 	}
