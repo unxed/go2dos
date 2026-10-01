@@ -13,6 +13,8 @@ type parentFrame struct {
 	psp            uint16
 	ss, sp         uint16 // stack with the parent's INT 21h frame on top
 	dtaSeg, dtaOff uint16
+	regs           [8]uint16 // parent's general registers at the EXEC call
+	ds, es         uint16
 }
 
 // image is a program file ready to be placed in memory.
@@ -148,7 +150,8 @@ func (d *DOS) exec(e *hle.Env) error {
 
 	// Parent state, resumed on termination.
 	parent := d.psp
-	d.frames = append(d.frames, parentFrame{psp: parent, ss: e.Seg(cpu.SS), sp: c.R[cpu.SP], dtaSeg: d.dtaSeg, dtaOff: d.dtaOff})
+	d.frames = append(d.frames, parentFrame{psp: parent, ss: e.Seg(cpu.SS), sp: c.R[cpu.SP],
+		dtaSeg: d.dtaSeg, dtaOff: d.dtaOff, regs: c.R, ds: e.Seg(cpu.DS), es: e.Seg(cpu.ES)})
 	m.W16(mem.Lin(parent, 0x2E), c.R[cpu.SP])
 	m.W16(mem.Lin(parent, 0x30), e.Seg(cpu.SS))
 
@@ -258,14 +261,20 @@ func (d *DOS) endChild(code byte, keep bool) bool {
 	d.psp = f.psp
 	d.setDTA(f.dtaSeg, f.dtaOff)
 	c := d.e.CPU
-	// Return to the parent as the IRET of its INT 21h would, but to the
-	// terminate address and with CF clear.
+	// Return to the parent like MS-DOS does (4.0 sources: CTRLC.ASM and
+	// restore_world in DISP.ASM): the parent's registers as they were at
+	// the EXEC call, its INT 21h frame dropped, IRET to the terminate
+	// address with FLAGS = F202h. Programs rely on this (VC 4.99.09 keeps
+	// DS across EXEC).
+	sp := f.regs[cpu.SP]
+	c.R = f.regs
+	c.R[cpu.SP] = sp + 6
 	c.SetSeg(cpu.SS, f.ss)
-	flags := c.Read16(cpu.SS, f.sp+4)
-	c.R[cpu.SP] = f.sp + 6
+	c.SetSeg(cpu.DS, f.ds)
+	c.SetSeg(cpu.ES, f.es)
 	c.SetSeg(cpu.CS, retCS)
 	c.IP = retIP
-	c.SetFlags(flags &^ cpu.FlagCF)
+	c.SetFlags(0xF202)
 	return true
 }
 

@@ -77,3 +77,17 @@ func TestVC405PanelsAndQuit(t *testing.T) {
 		t.Errorf("exit screen:\n%s", m.Screen().Text())
 	}
 }
+
+// VC 4.99.09 runs its overlay through EXEC and relies on DOS restoring the
+// parent's registers afterwards (docs/DOUBTS.md).
+func TestVC49909PanelsAndQuit(t *testing.T) {
+	m, err := session(t, "4.99.09",
+		`<waitfor:10Quit><waitfor:readme   txt><F10><waitfor:Do you want to quit><Enter>`)
+	var ex *machine.ExitError
+	if !errors.As(err, &ex) || ex.Code != 0 {
+		t.Fatalf("want exit 0, got %v; screen:\n%s", err, m.Screen().Text())
+	}
+	if !strings.Contains(m.Screen().Text(), "Version 4.99.09") {
+		t.Errorf("exit screen:\n%s", m.Screen().Text())
+	}
+}

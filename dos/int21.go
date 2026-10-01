@@ -579,6 +579,23 @@ func (d *DOS) ioctl(e *hle.Env) error {
 		c.R[cpu.DX] = 0
 	case 0x0E:
 		c.SetAL(0)
+	case 0x0D: // generic block device request
+		if c.R[cpu.CX] != 0x0866 {
+			return hle.Unsupported("INT 21h AX=440Dh CX=%04Xh (generic IOCTL)", c.R[cpu.CX])
+		}
+		// Get media ID: info level, serial number, volume label, FS type.
+		drive := int(c.BL())
+		if drive == 0 {
+			drive = d.fs.cur + 1
+		}
+		if drive > 26 || d.fs.drives[drive-1] == "" {
+			d.fail(e, errBadDrive)
+			return nil
+		}
+		a := e.DSDX()
+		e.Mem.W16(a, 0)
+		e.Mem.W32(a+2, 0x12345678)
+		e.Mem.SetBytes(a+6, []byte("NO NAME    FAT16   "))
 	default:
 		return hle.Unsupported("INT 21h AX=%04Xh (IOCTL)", c.R[cpu.AX])
 	}

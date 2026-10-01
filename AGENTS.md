@@ -2,7 +2,7 @@
 
 Прочитай этот файл целиком, потом — `README.md`, `docs/DESIGN.md` (статус в
 §13), `docs/DOUBTS.md` (открытые расследования), `docs/UTF8NAMES.md`,
-`docs/TASKS.md`, `docs/ASM-GATES.md`, `docs/SCREEN.md`, `docs/WASI-BRIDGE.md`, `docs/TRANSLATION.md`, `docs/DN-PLAN.md`,
+`docs/TASKS.md`, `docs/ASM-GATES.md`, `docs/VTUI-FRONTEND.md`, `docs/SCREEN.md`, `docs/WASI-BRIDGE.md`, `docs/TRANSLATION.md`, `docs/DN-PLAN.md`,
 `docs/NC-TESTING.md`.
 
 ## Правила работы с владельцем
@@ -103,9 +103,7 @@ ndisasm -b16 -o0xOFF -e$((0xSEG*16+0xOFF)) /tmp/go2dos-dump-*/memory.bin | head
 Рабочая очередь с уровнями сложности и стоп-условиями — `docs/TASKS.md`.
 Младшая модель берёт только задачи уровня H. Список ниже — общий порядок.
 
-1. **VC 4.99.09** — причина установлена (`docs/DOUBTS.md`): после `EXEC`
-   go2dos не восстанавливает регистры родителя, как это делает DOS. Починка —
-   задача T12, только после решения владельца.
+1. VC 4.05 и 4.99.09 работают (e2e). Дальше — очередь `docs/TASKS.md`.
 2. LFN (`INT 21h/71xx`) в эмуляторе — сейчас ответ «не поддерживается».
 3. Буфер обмена: WinOldAp (`INT 2Fh/17xx`) в HLE, копирование с экрана и
    вставка нажатиями во фронтенде (DESIGN §9).

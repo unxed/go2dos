@@ -5,7 +5,7 @@
 запускать файловые менеджеры для DOS (Norton Commander, Volkov Commander) и
 отдавать хосту их текст, буфер обмена и имена файлов.
 
-Состояние: Volkov Commander 4.05 работает; подробности и план — в
+Состояние: Volkov Commander 4.05 и 4.99.09 работают; подробности и план — в
 [docs/DESIGN.md](docs/DESIGN.md), открытые вопросы — в
 [docs/DOUBTS.md](docs/DOUBTS.md).
 
@@ -57,6 +57,7 @@ Norton Commander в тестах не используется; как пров�
 - [DESIGN.md](docs/DESIGN.md) — дизайн и план
 - [TASKS.md](docs/TASKS.md) — очередь задач с уровнями сложности
 - [ASM-GATES.md](docs/ASM-GATES.md) — гейты для правок ассемблерного кода
+- [VTUI-FRONTEND.md](docs/VTUI-FRONTEND.md) — фронтенд на vtui
 - [DOUBTS.md](docs/DOUBTS.md) — сомнения и расследования
 - [UTF8NAMES.md](docs/UTF8NAMES.md) — API UTF-8 имён файлов для DOS (черновик)
 - [SCREEN.md](docs/SCREEN.md) — окно любого размера, консоль хоста, длинные строки
