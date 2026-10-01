@@ -23,6 +23,17 @@ func (d *DOS) conWrite(b []byte) {
 	}
 }
 
+// stdout writes to handle 1 of the current process: the console, or the file
+// or device it was redirected to (the shell's > does that). The character
+// functions 02h, 06h and 09h write to standard output.
+func (d *DOS) stdout(b []byte) {
+	if of, errc := d.handle(1); errc == 0 && of.dev != devCON {
+		d.write(1, b)
+		return
+	}
+	d.conWrite(b)
+}
+
 func (d *DOS) cursorCol() (int, int) {
 	p := d.e.Mem.R16(0x450 + uint32(d.b.Video.ActivePage())*2)
 	return int(p >> 8), int(p & 0xFF)
@@ -127,17 +138,17 @@ func (d *DOS) charFunc(e *hle.Env, ah byte) error {
 			return cpu.ErrRetry
 		}
 		if ah == 0x01 {
-			d.conWrite([]byte{ch})
+			d.stdout([]byte{ch})
 		}
 		c.SetAL(ch)
 	case 0x02:
-		d.conWrite([]byte{c.DL()})
+		d.stdout([]byte{c.DL()})
 		c.SetAL(c.DL())
 	case 0x05:
 		e.Note("printer output discarded")
 	case 0x06:
 		if c.DL() != 0xFF {
-			d.conWrite([]byte{c.DL()})
+			d.stdout([]byte{c.DL()})
 			c.SetAL(c.DL())
 			return nil
 		}
@@ -159,7 +170,7 @@ func (d *DOS) charFunc(e *hle.Env, ah byte) error {
 			}
 			out = append(out, ch)
 		}
-		d.conWrite(out)
+		d.stdout(out)
 		c.SetAL('$')
 	case 0x0A:
 		buf := e.DSDX()
