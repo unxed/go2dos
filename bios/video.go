@@ -48,7 +48,8 @@ type Video struct {
 	// Stream, if set, receives every character written through the
 	// teletype (the stream channel, as opposed to direct video writes).
 	Stream    func(ch byte)
-	hleWrites uint32 // video page writes made by the teletype itself
+	hleWrites uint32      // video page writes made by the teletype itself
+	wrapped   [8][50]bool // wrapped[page][row] = true if the line is continued on the next line
 }
 
 // DirectWrites counts writes to video memory not made by the teletype:
@@ -129,6 +130,12 @@ func (v *Video) setMode(m byte, clear bool) error {
 	for p := byte(0); p < 8; p++ {
 		v.setCursor(p, 0, 0)
 	}
+	// Clear wrapped flags when mode changes.
+	for p := byte(0); p < 8; p++ {
+		for r := 0; r < 50; r++ {
+			v.wrapped[p][r] = false
+		}
+	}
 	if clear {
 		for a := v.base(); a < v.base()+0x8000; a += 2 {
 			v.e.Mem.W16(a, 0x0720)
@@ -170,6 +177,15 @@ func (v *Video) scroll(up bool, lines, attr byte, top, left, bottom, right int) 
 			}
 			v.e.Mem.W16(v.cellAddr(page, row, col), val)
 		}
+		// Move wrapped flag along with the line content.
+		// Only copy wrapped flag if scrolling the full line width.
+		if left == 0 && right == cols-1 {
+			if (up && src <= bottom) || (!up && src >= top) {
+				v.wrapped[page][row] = v.wrapped[page][src]
+			} else {
+				v.wrapped[page][row] = false
+			}
+		}
 	}
 }
 
@@ -203,6 +219,8 @@ func (v *Video) teletype(ch byte, page byte) {
 		v.e.Mem.W8(a, ch)
 		col++
 		if col >= cols {
+			// Mark the line as wrapped (continued on the next line).
+			v.wrapped[page][row] = true
 			col = 0
 			row++
 		}
@@ -391,6 +409,7 @@ type Screen struct {
 	CursorY       int
 	CursorVisible bool
 	Version       uint32 // changes whenever video memory or CRTC state changes
+	Wrapped       []bool // wrapped[y] = true if line y continues on line y+1
 }
 
 // TextMode reports whether the snapshot holds text.
@@ -405,11 +424,17 @@ func (s *Screen) Line(y int) string {
 	return strings.TrimRight(b.String(), " ")
 }
 
-// Text returns the whole screen, one line per row.
+// Text returns the whole screen, one line per row, joining wrapped lines.
 func (s *Screen) Text() string {
-	lines := make([]string, s.Rows)
-	for y := range lines {
-		lines[y] = s.Line(y)
+	var lines []string
+	for y := 0; y < s.Rows; y++ {
+		if y > 0 && len(lines) > 0 && s.Wrapped[y-1] {
+			// This line is a continuation of the previous line.
+			// Append it without newline.
+			lines[len(lines)-1] += s.Line(y)
+		} else {
+			lines = append(lines, s.Line(y))
+		}
 	}
 	return strings.Join(lines, "\n")
 }
@@ -450,6 +475,11 @@ func (v *Video) Snapshot() *Screen {
 	if pos >= 0 && pos < s.Cols*s.Rows {
 		s.CursorX, s.CursorY = pos%s.Cols, pos/s.Cols
 		s.CursorVisible = v.crtc[0x0A]&0x20 == 0 && v.crtc[0x0A]&0x1F <= v.crtc[0x0B]&0x1F
+	}
+	page := v.b8(bdaActivePage)
+	s.Wrapped = make([]bool, s.Rows)
+	for i := 0; i < s.Rows; i++ {
+		s.Wrapped[i] = v.wrapped[page][i]
 	}
 	return s
 }

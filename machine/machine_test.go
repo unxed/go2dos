@@ -125,3 +125,19 @@ func TestParseWatch(t *testing.T) {
 		t.Error("bad address accepted")
 	}
 }
+
+func TestLongLine(t *testing.T) {
+	m, err := runProg(t, "longline.com")
+	if c := exitCode(t, err); c != 0 {
+		t.Fatalf("exit code %d; screen:\n%s", c, m.Screen().Text())
+	}
+	// 160 A's should be split across two lines when displayed.
+	// Line 0 should have 80 A's.
+	// Line 1 should have 80 A's (continuation of line 0).
+	// When joined through Screen.Text(), they should form one line of 160 A's.
+	text := m.Screen().Text()
+	expected := strings.Repeat("A", 160)
+	if !strings.Contains(text, expected) {
+		t.Errorf("Expected 160 A's in output. Got:\n%s", text)
+	}
+}
