@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build -o dist/ ./cmd/go2dos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: go2dos-${{ matrix.os }}
+          path: dist/
+
+  e2e-vc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: sh tools/fetch-vc.sh .cache/vc
+      - run: go test -v ./e2e/
+        env:
+          GO2DOS_VC_DIR: .cache/vc
+
+  cpu-singlestep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/cache@v4
+        with:
+          path: .cache/sst
+          key: sst-8088-v2
+      - run: sh tools/fetch-sst.sh .cache/sst
+      - run: go test -run TestSingleStep8088 ./cpu/
+        env:
+          GO2DOS_SST_DIR: .cache/sst
