@@ -135,6 +135,9 @@ ndisasm -b16 -o0xOFF -e$((0xSEG*16+0xOFF)) /tmp/go2dos-dump-*/memory.bin | head
    Затем трансляция x86 → wasm (M13): один транслятор для JIT и AOT, откат
    на интерпретатор, метаданные JWasm и покрытие как источники блоков
    (`docs/TRANSLATION.md`). Бэкенд wasm в JWasm не писать.
+9a. Эксперимент `vc-wasm/` (по поручению владельца): ручной перевод VC 4.05 в
+   C моделью, сборка в wasm. Свой план и правила — `vc-wasm/PLAN.md`; агент,
+   который работает над `vc-wasm`, начинает с него.
 10. Дальние планы: Dos Navigator, Norton Commander (DESIGN §20). Для DN —
     сначала аудит кода Turbo Vision, переработка и двойная перепроверка, затем
     вынос TV в отдельный проект (`docs/DN-PLAN.md`). Код TV и DN не попадает
