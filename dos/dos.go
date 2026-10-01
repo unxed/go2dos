@@ -111,8 +111,8 @@ type DOS struct {
 	anyFault  bool
 	errorMode bool // INT 24h is running
 	crit      critState
-	clip      Clipboard
-	clipOpen  bool
+	amis      map[byte]*amisEntry // AMIS providers by multiplex number (amis.go)
+	amisHooks uint16
 	int21Off  uint16 // stub of INT 21h itself
 	critStub  uint16 // ROM stub that continues a call after INT 24h
 	cc        []ccState
@@ -199,8 +199,7 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 	// INT 24h by default: the kernel handler always answers Fail (RBIL Int 24).
 	e.HookInt(0x24, "int24", func(e *hle.Env) error { e.CPU.SetAL(3); return nil })
 	d.installCrit(e)
-	d.shells = map[uint16]*shellState{}
-	d.shellTrap = e.Register("shell", d.shellStep)
+	d.installAMIS(e)
 	e.HookInt(0x25, "int25", func(e *hle.Env) error { return hle.Unsupported("INT 25h absolute disk read") })
 	e.HookInt(0x26, "int26", func(e *hle.Env) error { return hle.Unsupported("INT 26h absolute disk write") })
 	e.HookInt(0x27, "int27", d.int27)
