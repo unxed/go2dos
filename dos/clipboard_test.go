@@ -160,3 +160,33 @@ func TestWinOldApClipboard(t *testing.T) {
 		t.Errorf("AX for unsupported format: want 0, got %d", c.R[cpu.AX])
 	}
 }
+
+// TestDPMIPresenceCheck tests the DPMI presence check (INT 2Fh/1686h).
+func TestDPMIPresenceCheck(t *testing.T) {
+	m := mem.New()
+	c := cpu.New(m, nil)
+	page, err := cp.Get(437)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := hle.NewTracer(0, nil, nil)
+	env := hle.New(c, m, page, time.Now, tr)
+	b := bios.New(env)
+	d, err := New(env, b, Config{
+		Drives: map[byte]string{'C': "."},
+		Env:    []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test: DPMI presence check (0x1686)
+	// Should return AX=0 to indicate DPMI is not available
+	c.R[cpu.AX] = 0x1686
+	if err := d.int2F(env); err != nil {
+		t.Fatalf("int2F(0x1686): %v", err)
+	}
+	if c.R[cpu.AX] != 0 {
+		t.Errorf("AX after DPMI check: want 0, got 0x%04X", c.R[cpu.AX])
+	}
+}
