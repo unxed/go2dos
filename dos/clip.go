@@ -41,7 +41,8 @@ const (
 	winOldApVer = 0x0A03  // AL=3, AH=10: «Windows 3.10» (предположение)
 )
 
-// clipFormatOK: оба текстовых формата трактуются как OEM (DESIGN §9).
+// clipFormatOK: оба текстовых формата трактуются как OEM (DESIGN §9), а у процесса в режиме UTF-8
+// (utf8clip.go) — как UTF-8.
 func clipFormatOK(f uint16) bool { return f == cfText || f == cfOEMText }
 
 // clipBytes — текст буфера как его отдаёт сервер: OEM-байты, LF → CR LF.
@@ -51,11 +52,7 @@ func (d *DOS) clipBytes() ([]byte, bool) {
 		return nil, false
 	}
 	s = strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\n", "\r\n")
-	b, _ := d.e.CP.Encode(s)
-	if len(b) >= clipMax {
-		b = b[:clipMax-1]
-	}
-	return b, true
+	return d.clipCut(d.clipEncode(s)), true
 }
 
 // winOldAp обслуживает INT 2Fh AH=17h; false — вызов не наш.
@@ -97,7 +94,7 @@ func (d *DOS) winOldAp(e *hle.Env) (bool, error) {
 		if i := strings.IndexByte(string(b), 0); i >= 0 {
 			b = b[:i]
 		}
-		s := strings.ReplaceAll(d.e.CP.Decode(b), "\r\n", "\n")
+		s := strings.ReplaceAll(d.clipDecode(b), "\r\n", "\n")
 		flag(d.clip.SetText(s) == nil)
 	case 0x04: // размер данных формата DX: с завершающим нулём; 0 — данных нет
 		// The text is read once here and kept for 1705h: the system clipboard
