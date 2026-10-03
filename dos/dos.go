@@ -130,6 +130,7 @@ type DOS struct {
 	clipOpen  bool
 	clipSnap  []byte // the text 1704h reported, for the 1705h that follows (clip.go)
 	clipHave  bool
+	clipUTF8  map[uint16]bool     // processes with the UTF-8 text of the clipboard (utf8clip.go)
 	utf8      map[uint16]bool     // processes with UTF-8 file names (utf8names.go)
 	amis      map[byte]*amisEntry // AMIS providers by multiplex number (amis.go)
 	amisHooks uint16
@@ -223,6 +224,7 @@ func New(e *hle.Env, b *bios.BIOS, cfg Config) (*DOS, error) {
 	d.shellTrap = e.Register("shell", d.shellStep)
 	d.installAMIS(e)
 	d.installUTF8Names()
+	d.installUTF8Clip()
 	e.HookInt(0x25, "int25", func(e *hle.Env) error { return hle.Unsupported("INT 25h absolute disk read") })
 	e.HookInt(0x26, "int26", func(e *hle.Env) error { return hle.Unsupported("INT 26h absolute disk write") })
 	e.HookInt(0x27, "int27", d.int27)
@@ -662,6 +664,7 @@ func (d *DOS) terminateAs(code, typ byte) {
 	d.cc = nil
 	delete(d.shells, d.psp)
 	delete(d.utf8, d.psp) // UTF-8 names end with the process
+	delete(d.clipUTF8, d.psp)
 	d.exit = code
 	d.exitType = typ
 	if d.endChild(code, keep) {

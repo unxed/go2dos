@@ -22,6 +22,7 @@ code in `main`; nothing in a planned section may be relied on.
 | 3 | Clipboard server | `INT 2Fh AH=17h` (WinOldAp) | Implemented | §3 |
 | 4 | Long file names | `INT 21h AH=71h` | Implemented | §4 |
 | 5 | UTF-8 file names, `DOS-UTF8/NAMES` | `INT 2Dh` AL=10h, 11h | Implemented | §5, [UTF8NAMES.md](UTF8NAMES.md) |
+| 5a | UTF-8 text of the clipboard, `DOS-UTF8/CLIPBRD` | `INT 2Dh` AL=10h, 11h (then `INT 2Fh AH=17h`) | Implemented | §3, [UTF8CLIPBOARD.md](UTF8CLIPBOARD.md) |
 | 6 | Lossless names for programs that do not know UTF-8 | classic `INT 21h` and `71xx` | Implemented | §6, [NAMES.md](NAMES.md) (Russian) |
 | 7 | Text window size and events, `DOS-HOST/TEXTWIN` | `INT 2Dh` AL=10h-12h | Implemented (machine level) | §7, [TEXTWIN.md](TEXTWIN.md) |
 | 8 | Host commands, `DOS-HOST/HOSTEXEC` | `INT 2Dh` AL=10h; `COMMAND.COM` | Implemented, off by default | §8, [HOSTEXEC-API.md](HOSTEXEC-API.md) |
@@ -60,6 +61,7 @@ drivers.
 | Manufacturer | Product | Version | Function numbers | Section |
 |---|---|---|---|---|
 | `DOS-UTF8` | `NAMES   ` | 1.0 | 10h set encoding, 11h get encoding | §5 |
+| `DOS-UTF8` | `CLIPBRD ` | 1.0 | 10h set encoding, 11h get encoding (only with a clipboard) | §3 |
 | `DOS-HOST` | `TEXTWIN ` | 1.0 | 10h size, 11h watch, 12h screen role | §7 |
 | `DOS-HOST` | `HOSTEXEC` | 1.0 | 10h run a command | §8 |
 | `DOS-WASI` | `PREVIEW1` | planned | planned: 01h returns the entry point | §12 |
@@ -91,7 +93,8 @@ AX=1700h and takes any change of AX as "present".
 | 1709h | compact | | DX:AX = 1 MB (always enough room) |
 
 Formats: 01h (`CF_TEXT`) and 07h (`CF_OEMTEXT`); both are taken as text in the OEM
-code page. Text on the wire is OEM bytes with CR LF line ends and a final 0. The
+code page. A process that turns on `DOS-UTF8/CLIPBRD` (AMIS, `INT 2Dh` AL=10h BX=65001;
+[UTF8CLIPBOARD.md](UTF8CLIPBOARD.md)) gets the same two formats as UTF-8 instead. Text on the wire is OEM bytes with CR LF line ends and a final 0. The
 host side holds Unicode text with LF; the server converts in both directions through
 the code page. A reader stops at the first 0 byte (Windows rounds sizes up and does
 not shrink them after trailing blanks are cut). Any other function of `AH=17h`
