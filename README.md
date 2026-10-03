@@ -1,5 +1,7 @@
 # go2dos
 
+![](https://raw.githubusercontent.com/unxed/go2dos/refs/heads/main/.github/assets/screenshot.jpg)
+
 Эмулятор DOS на Go: библиотека и демо-приложение. Ядро 8086 (с расширениями
 80186) и высокоуровневая эмуляция BIOS и DOS поверх каталогов хоста. Цель —
 запускать файловые менеджеры для DOS (Norton Commander, Volkov Commander) и
