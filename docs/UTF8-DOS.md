@@ -271,6 +271,24 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
   DKRNL32 держал стек завершившегося потока (1 МБ) до `CloseHandle`, а Far 2 перезапускает короткий
   поток (`WindowHandler::Check`) и дескрипторы не закрывает, так что кончалась память. Теперь стек
   освобождает диспетчер при завершении потока (`far-stand` `f7728bb`), как в Windows.
+- **SSE2 для DOSBox-X: подготовка (2026-10-21).** Форк `unxed/dosbox-x`, проверки — в
+  `unxed/sandbox` (`dosbox-x-sse2/`, workflow `dosbox-x-test.yml`: сборка DOSBox-X из ветки форка и
+  гостевой тест `ud.asm`, который исполняет по одной инструкции с обработчиком `INT 6`).
+  - Шаг 1, ветка `mmx-strict-prefix` (один коммит поверх `master`): MMX-опкоды с префиксом
+    66/F2/F3 дают #UD, а не молча выполняются как MMX. На `master` 15 кодировок SSE2 выполняются как
+    MMX (прогон https://github.com/unxed/sandbox/actions/runs/39621675202), на ветке проходят все
+    (https://github.com/unxed/sandbox/actions/runs/39621762139). Ссылка для PR (отправляет владелец):
+    https://github.com/joncampbell123/dosbox-x/compare/master...unxed:dosbox-x:mmx-strict-prefix?expand=1
+  - Шаг 2, ветка `sse2-skeleton` (один коммит поверх шага 1): опция `[cpu] enable sse2` (по умолчанию
+    выключена), `CPU_SSE2()`, CPUID.1 EDX бит 26 (SSE2) и бит 19 (CLFLUSH), `LFENCE`/`MFENCE`/
+    `CLFLUSH` (#UD без опции). Прогоны: https://github.com/unxed/sandbox/actions/runs/39624069371
+    (по умолчанию ничего не меняется) и https://github.com/unxed/sandbox/actions/runs/39624091997
+    (`enable sse2`, бит 26 = 1). PR — после слияния шага 1:
+    https://github.com/joncampbell123/dosbox-x/compare/master...unxed:dosbox-x:sse2-skeleton?expand=1
+  - Дальше (отдельные PR): шаг 3 — скалярный и упакованный double и пересылки (`MOVLPD`, `MOVSD`,
+    `ADDSD`, `CVT*` …; для Far 3 и sqlite3 этого достаточно), шаг 4 — целочисленный XMM, шаг 5 —
+    остаток и `cputype`; `dynamic_x86` — только для 32-битных сборок, не проверялось. Подробнее —
+    `unxed/sandbox`, `dosbox-x-sse2/README.md`.
 - Отладочная сборка DUSER32 (`nmake DEBUG=1`) в исходном HX не собирается:
   `KEYBOARD.ASM(411): Operands must be the same size` — ошибка самого HX, кандидат в PR.
 - **SSE2 в DOSBox-X** (оценка по исходникам, 2026-10-21): реально, средний объём. XMM-регистры, MXCSR,
@@ -295,7 +313,7 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
 | HX | дескрипторы каталогов и `NtQueryDirectoryFile`; `GetModuleHandle("ntdll")`; `RtlNtStatusToDosError`, `RtlGetLastNtStatus`, `NtClose` | в `far-stand` (`NTDIR.ASM`); PR — с тестом |
 | HX | отладочная сборка DUSER32 (`KEYBOARD.ASM(411)`) | найдено, не начато |
 | HX | `CP_ACP`/`CP_OEMCP`, консольные W-функции, файловые W-функции через `DOS-UTF8/NAMES`, буфер обмена через WinOldAp/`DOS-UTF8/CLIPBRD` (H4–H7) | не начато |
-| DOSBox-X | строгие префиксы MMX (#UD вместо молчаливой порчи), затем SSE2 по шагам: каркас и `cputype`, скалярный/упакованный double, целочисленный XMM, остаток и бит CPUID | не начато |
+| DOSBox-X | строгие префиксы MMX (#UD вместо молчаливой порчи), затем SSE2 по шагам: каркас и `cputype`, скалярный/упакованный double, целочисленный XMM, остаток и бит CPUID | шаги 1 и 2 готовы и проверены в ветках `mmx-strict-prefix`, `sse2-skeleton` форка; PR отправляет владелец; шаги 3–5 не начаты |
 | Far | то, без чего официальная сборка не работает поверх ванильного HX и что Far может сделать сам (см. 7.2): брать API, которых нет в HX, через `GetProcAddress` с запасным путём, как Far уже делает для API новых Windows; возможно — сборка x86 без SSE2 | решить по данным стенда |
 | DOSLFN | `DOS-UTF8/NAMES` | adoxa/doslfn#2, ответа нет |
 
