@@ -293,10 +293,28 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
     58 из 58 проверок результатов (в том числе правила NaN для MIN/MAX/CMP и «целое неопределённое»)
     и 34 из 34 проверок на #UD. Не сделаны флаги исключений MXCSR и #XM. Ссылка для PR (после шага 2):
     https://github.com/joncampbell123/dosbox-x/compare/master...unxed:dosbox-x:sse2-double?expand=1
-  - Дальше (отдельные PR): шаг 4 — целочисленный XMM (`MOVDQA/MOVDQU`, `PXOR`, `PSHUFD`, `PUNPCK*`,
-    `PADDQ`, сдвиги …; нужен Far 3 и `memcpy`/`strlen` из библиотек MSVC), шаг 5 — остаток и
-    `cputype`; `dynamic_x86` — только для 32-битных сборок, не проверялось. Подробнее —
-    `unxed/sandbox`, `dosbox-x-sse2/README.md`.
+  - Шаг 4, ветка `sse2-int` (поверх шага 3): целочисленный SSE2 на XMM (префикс 66 на опкодах MMX):
+    `MOVDQA/MOVDQU/MOVD/MOVQ/MOVNTDQ`, `PSHUFD/PSHUFLW/PSHUFHW`, `PUNPCK*`, `PACK*`, `PADD/PSUB`
+    (в том числе насыщающие и Q), `PMULLW/PMULHW/PMADDWD/PMULUDQ`, `PAND/PANDN/POR/PXOR`,
+    `PCMPEQ/PCMPGT`, сдвиги, `PSLLDQ/PSRLDQ`. Это то, чем `memcpy`/`strlen` из библиотек MSVC.
+  - Шаг 5, ветка `sse2-rest` (поверх шага 4): остаток набора: `CVTDQ2PS/CVTPS2DQ/CVTTPS2DQ`,
+    `CVTDQ2PD/CVTPD2DQ/CVTTPD2DQ`, `CVTPI2PD`, `CVTPD2PI`, `CVTTPD2PI`, `MASKMOVDQU`, `MOVQ2DQ`,
+    `MOVDQ2Q`, `MOVNTI`, `PADDQ/PSUBQ/PMULUDQ` на регистрах MMX. Прогон
+    https://github.com/unxed/sandbox/actions/runs/39627770080: 225 из 225 проверок результатов (эталоны —
+    независимая модель на Python, `gen_sse2int.py`), 58 из 58 (double) и 34 из 34 (#UD).
+    Ссылки для PR (по порядку после шага 3):
+    https://github.com/joncampbell123/dosbox-x/compare/master...unxed:dosbox-x:sse2-int?expand=1,
+    https://github.com/joncampbell123/dosbox-x/compare/master...unxed:dosbox-x:sse2-rest?expand=1
+  - Сознательно не сделано: `cputype` (новая личность процессора меняет поведение ОС и программ по
+    CPUID — решение сопровождающего; опция `enable sse2` работает с `pentium_iii`/`experimental`),
+    флаги исключений MXCSR и #XM, дизассемблер отладчика.
+  - `dynamic_x86` — ветка `dynx86-strict-prefix`, **не проверено**: 32-битная сборка (`config.h` с
+    `C_DYNAMIC_X86`) с `core=dynamic` даёт тот же результат с правкой и без неё, поэтому тест не
+    показывает, что динамическое ядро само компилирует эти опкоды; в апстрим не отправлять, пока
+    прогон не покажет разницу.
+  - Следующий шаг по цели: проверить настоящей программой (Far 3 x86 под HX в DOSBox-X с
+    `enable sse2`) — стенд `hx-far-run.yml` пока берёт DOSBox-X из apt, нужен DOSBox-X из ветки
+    `sse2-rest`, собранный в CI. Подробнее — `unxed/sandbox`, `dosbox-x-sse2/README.md`.
 - Отладочная сборка DUSER32 (`nmake DEBUG=1`) в исходном HX не собирается:
   `KEYBOARD.ASM(411): Operands must be the same size` — ошибка самого HX, кандидат в PR.
 - **SSE2 в DOSBox-X** (оценка по исходникам, 2026-10-21): реально, средний объём. XMM-регистры, MXCSR,
@@ -321,7 +339,7 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
 | HX | дескрипторы каталогов и `NtQueryDirectoryFile`; `GetModuleHandle("ntdll")`; `RtlNtStatusToDosError`, `RtlGetLastNtStatus`, `NtClose` | в `far-stand` (`NTDIR.ASM`); PR — с тестом |
 | HX | отладочная сборка DUSER32 (`KEYBOARD.ASM(411)`) | найдено, не начато |
 | HX | `CP_ACP`/`CP_OEMCP`, консольные W-функции, файловые W-функции через `DOS-UTF8/NAMES`, буфер обмена через WinOldAp/`DOS-UTF8/CLIPBRD` (H4–H7) | не начато |
-| DOSBox-X | строгие префиксы MMX (#UD вместо молчаливой порчи), затем SSE2 по шагам: каркас и `cputype`, скалярный/упакованный double, целочисленный XMM, остаток и бит CPUID | шаги 1–3 готовы и проверены в ветках `mmx-strict-prefix`, `sse2-skeleton`, `sse2-double` форка; PR отправляет владелец; шаги 4–5 не начаты |
+| DOSBox-X | строгие префиксы MMX (#UD вместо молчаливой порчи), затем SSE2 по шагам: каркас и `cputype`, скалярный/упакованный double, целочисленный XMM, остаток и бит CPUID | шаги 1–5 готовы и проверены в ветках `mmx-strict-prefix`, `sse2-skeleton`, `sse2-double`, `sse2-int`, `sse2-rest` форка; PR отправляет владелец; `dynamic_x86` и `cputype` — см. выше |
 | Far | то, без чего официальная сборка не работает поверх ванильного HX и что Far может сделать сам (см. 7.2): брать API, которых нет в HX, через `GetProcAddress` с запасным путём, как Far уже делает для API новых Windows; возможно — сборка x86 без SSE2 | решить по данным стенда |
 | DOSLFN | `DOS-UTF8/NAMES` | adoxa/doslfn#2, ответа нет |
 
