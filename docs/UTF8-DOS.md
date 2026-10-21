@@ -266,6 +266,11 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
   `FindFirstFileA`/`FindNextFileA` (`NTDIR.ASM`; Far 2 и Far 3 перечисляют каталоги только так),
   `GetModuleHandle("ntdll")` даёт DKRNL32, добавлены `RtlNtStatusToDosError`, `RtlGetLastNtStatus`,
   `NtClose`. Это тоже кандидаты в апстрим HX (7.1).
+- **Far 2: переход по каталогам и выход работают** (Down/Enter, Ctrl+PgUp, F10 + Enter; прогон
+  https://github.com/unxed/sandbox/actions/runs/39620132182). Для этого исправлена ошибка HX:
+  DKRNL32 держал стек завершившегося потока (1 МБ) до `CloseHandle`, а Far 2 перезапускает короткий
+  поток (`WindowHandler::Check`) и дескрипторы не закрывает, так что кончалась память. Теперь стек
+  освобождает диспетчер при завершении потока (`far-stand` `f7728bb`), как в Windows.
 - Отладочная сборка DUSER32 (`nmake DEBUG=1`) в исходном HX не собирается:
   `KEYBOARD.ASM(411): Operands must be the same size` — ошибка самого HX, кандидат в PR.
 - **SSE2 в DOSBox-X** (оценка по исходникам, 2026-10-21): реально, средний объём. XMM-регистры, MXCSR,
@@ -286,6 +291,7 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
 | HX | `CP_UTF8` | Baron-von-Riedesel/HX#76, ждёт ревью |
 | HX | недостающие функции DKRNL32/DUSER32 (а потом DADVAPI, SHELL32, MPR, OLE32), которые нужны Far: каждая — либо через уже имеющиеся функции, либо честная заглушка | готовы в `far-stand` (30 функций); разбить на PR по файлам после реакции на #76 |
 | HX | префикс `\\?\` в путях W- (и A-) функций | в `far-stand`; PR — с тестом |
+| HX | освобождение стека завершившегося потока без `CloseHandle` (утечка памяти) | в `far-stand` (`THREAD.ASM`); PR — с тестом |
 | HX | дескрипторы каталогов и `NtQueryDirectoryFile`; `GetModuleHandle("ntdll")`; `RtlNtStatusToDosError`, `RtlGetLastNtStatus`, `NtClose` | в `far-stand` (`NTDIR.ASM`); PR — с тестом |
 | HX | отладочная сборка DUSER32 (`KEYBOARD.ASM(411)`) | найдено, не начато |
 | HX | `CP_ACP`/`CP_OEMCP`, консольные W-функции, файловые W-функции через `DOS-UTF8/NAMES`, буфер обмена через WinOldAp/`DOS-UTF8/CLIPBRD` (H4–H7) | не начато |
