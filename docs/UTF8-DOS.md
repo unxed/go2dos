@@ -50,7 +50,7 @@ DOS-программа видит имена файлов и текст буфе
 | go2dos | да | да | этот репозиторий |
 | DOSBox-X | да (`utf8 file names`) | да (при `dos clipboard api=true`; хосты SDL2 и Windows) | https://github.com/joncampbell123/dosbox-x/pull/6632 — влит 2026-10-05; заменил закрытый https://github.com/joncampbell123/dosbox-x/pull/6631 (только буфер) |
 | DOSLFN | — | — | предложено: https://github.com/adoxa/doslfn/issues/2 (§4.1) |
-| HX DOS Extender (Win32-слой) | — | — | предложено: https://github.com/Baron-von-Riedesel/HX/issues/75 (§4.2) |
+| HX DOS Extender (Win32-слой) | — | — | предложено: https://github.com/Baron-von-Riedesel/HX/issues/75 (§4.2); PR 1 (`CP_UTF8`) готов, план до Far — §7 |
 | TSR буфера обмена VirtualBox (VBCLIP) | — | — | идея; автор vbados отказался включать её в vbados (§4.3) |
 
 **Клиенты** (**установлено** по исходникам, если не сказано иное):
@@ -162,8 +162,64 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
 4. Ответы: DOSLFN (тишина с 2026-10-09), HX (черновик ответа), vbados (черновик ответа), tvision
    PR 241 (ждём ревью).
 5. CLIPBRD 1.1: согласовать, реализовать в go2dos, затем решать про VBCLIP.
+6. Far под HX — план §7.
 
-## 7. Ссылки
+## 7. Цель: Unicode-версия Far Manager под HX в DOSBox-X
+
+Цель владельца: Far 2.x или 3.x (Unicode) под HX в DOSBox-X, с длинными именами в UTF-8 и буфером
+обмена хоста в UTF-8.
+
+**PR из HX#75 для этого нужны, но их мало** (состояние на 2026-10-21).
+
+Что уже есть:
+
+- DOSBox-X: LFN, `DOS-UTF8/NAMES`, `DOS-UTF8/CLIPBRD` (PR 6632). Со стороны DOS всё готово.
+- HX, PR 1 (`CP_UTF8` в `MultiByteToWideChar`/`WideCharToMultiByte`/`GetCPInfo`): ветка
+  `dkrnl32-cp-utf8` в `unxed/HX`, один коммит поверх `master`. Тест сверяет 1030 случаев с
+  kernel32 Windows, все совпадают (https://github.com/unxed/sandbox/tree/main/hx-utf8,
+  прогон https://github.com/unxed/sandbox/actions/runs/39606180465; upstream `master` на том же
+  тесте: 635 расхождений).
+
+Чего не хватает (**установлено** разбором таблиц импорта Far 3.0.6745.5025 x86 против экспортов
+`SrcEmu/*/*.DEF` HX: https://github.com/unxed/sandbox/blob/main/hx-far/REPORT-far3-x86.md):
+
+1. **Far 3 под HX сейчас не загрузится.** `Far.exe` импортирует 8 системных DLL, которых в HX нет:
+   `imm32`, `netapi32`, `psapi`, `rpcrt4`, `secur32`, `setupapi`, `userenv`, `winspool.drv`.
+   Отсутствующая DLL прерывает загрузку (`Src/DPMILDR/PELOAD.ASM`, `DoImports`). Кроме того,
+   `Far.exe` не находит 69 функций: DKRNL32 44, DADVAPI 11, DUSER32 8, MPR 2, SHELL32 2,
+   COMDLG32 1, OLE32 1. С `DPMILDR=128` загрузчик стартует программу и без них, но вызов такой
+   функции останавливает её. Со всеми плагинами недостаёт 12 DLL и 118 функций.
+2. **Даже загрузившись, Far будет терять символы.** Функции, которые в HX есть, работают
+   однобайтно ([HX-RESEARCH.md](HX-RESEARCH.md) §1–2):
+   - `...W`-функции для файлов отбрасывают старший байт;
+   - консольные `...W`-функции тоже;
+   - буфер обмена в DUSER32 живёт только внутри процесса.
+
+**План** (по порядку; каждый пункт — отдельный PR в HX или шаг здесь):
+
+| # | Шаг | Состояние |
+|---|---|---|
+| H1 | `CP_UTF8` в DKRNL32 | готов, ждёт отправки в HX |
+| H2 | Стенд в CI: DOSBox-X + HX (HXRT) + Far 3 x86, скриншоты (vmlab или DOSBox-X без окна); сначала с `DPMILDR=128`, чтобы увидеть, где Far останавливается | не начат |
+| H3 | Заглушки для 8 DLL и 69 функций, которых не хватает `Far.exe`: отвечают «не поддерживается», как остальные заглушки HX. Сначала то, что Far вызывает при старте (по стенду H2) | не начат |
+| H4 | `CP_ACP`/`CP_OEMCP` через таблицу текущей кодовой страницы DOS (`INT 21h AX=6601h`) | не начат |
+| H5 | Консоль: `WriteConsoleOutputW`, `WriteConsoleW`, `ReadConsoleInputW` (поле `UnicodeChar`), `SetConsoleOutputCP(65001)` — через OEM-страницу | не начат |
+| H6 | Файловые `...W`-функции через `DOS-UTF8/NAMES`: точка вставки — `ConvertWStr`/`ConvW2A` (HX-RESEARCH §1) | не начат |
+| H7 | Буфер обмена DUSER32 через WinOldAp и `DOS-UTF8/CLIPBRD` (`CF_UNICODETEXT` ↔ UTF-8); вызовы через DPMI 0300h с буфером в нижней памяти (HX-RESEARCH §2) | не начат |
+| H8 | Проверка на стенде: имя вне CP866 видно и открывается, копирование и вставка с хостом работают | не начат |
+| H9 | Far 2.x: разобрать импорты так же (`hx-far.yml -f far=<URL>`). Сайт farmanager.com закрыт от ботов (Anubis), нужен другой источник дистрибутива | не начат |
+
+Риски:
+
+- Japheth сам делать это не будет; примет ли он PR — неясно (§4.2). Если не примет, работа
+  остаётся в форке `unxed/HX`. Но распространять изменённый HX без его разрешения нельзя
+  (HX-RESEARCH §5): для своего стенда можно, для релиза — нет.
+- Часть API Far нельзя сделать в DOS по существу (процессы и job objects, именованные каналы,
+  тома). Заглушка должна давать отказ, с которым Far умеет жить; это покажет только стенд H2.
+- Плагины: `arclite` (его `7z.dll` импортирует `msvcrt.dll`), `NetBox`, `LuaMacro` (`lua51.dll`)
+  тянут свои DLL. Сначала цель — Far без плагинов или с минимальным набором.
+
+## 8. Ссылки
 
 - Спецификации: [UTF8NAMES.md](UTF8NAMES.md), [UTF8CLIPBOARD.md](UTF8CLIPBOARD.md),
   [DOS-EXTENSIONS.md](DOS-EXTENSIONS.md) §2, §3, §5.
@@ -173,5 +229,5 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
   https://github.com/joncampbell123/dosbox-x/pull/6631,
   https://github.com/joncampbell123/dosbox-x/issues/5025.
 - DOSLFN: https://github.com/adoxa/doslfn/issues/2.
-- HX: https://github.com/Baron-von-Riedesel/HX/issues/75.
+- HX: https://github.com/Baron-von-Riedesel/HX/issues/75; проверки — https://github.com/unxed/sandbox/tree/main/hx-utf8, https://github.com/unxed/sandbox/tree/main/hx-far.
 - tvision: https://github.com/magiblot/tvision/pull/241.

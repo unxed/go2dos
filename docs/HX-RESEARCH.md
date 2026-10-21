@@ -136,6 +136,11 @@ manager», `https://www.bttr-software.de/forum/mix_entry.php?id=3628`):
   Rugxulo/Laaca): Win32-вариант NDN запускался под HX с ошибками сокетов
   (`Winsock error 11001`, `EXCEPTION 0D8h`) — это тот же класс задач.
 
+**Far 3 (Unicode), 2026-10-21 (установлено разбором импортов):** Far 3.0.6745.5025 x86 не
+загрузится под HX `master`: не хватает 8 DLL и 69 функций для `Far.exe` (отчёт:
+https://github.com/unxed/sandbox/blob/main/hx-far/REPORT-far3-x86.md). План до работающего
+Far с UTF-8 — `UTF8-DOS.md` §7.
+
 **Чего нет и надо выяснить:** собрать прогон Far 1.71 (дистрибутив с farmanager.com
 или сайта Far Group) под HX на нашем стенде. Скачивать его нужно только на
 машине, не в репозиторий.
