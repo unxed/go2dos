@@ -305,13 +305,22 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
     Ссылки для PR (по порядку после шага 3):
     https://github.com/joncampbell123/dosbox-x/compare/master...unxed:dosbox-x:sse2-int?expand=1,
     https://github.com/joncampbell123/dosbox-x/compare/master...unxed:dosbox-x:sse2-rest?expand=1
-  - Сознательно не сделано: `cputype` (новая личность процессора меняет поведение ОС и программ по
-    CPUID — решение сопровождающего; опция `enable sse2` работает с `pentium_iii`/`experimental`),
-    флаги исключений MXCSR и #XM, дизассемблер отладчика.
-  - `dynamic_x86` — ветка `dynx86-strict-prefix`, **не проверено**: 32-битная сборка (`config.h` с
-    `C_DYNAMIC_X86`) с `core=dynamic` даёт тот же результат с правкой и без неё, поэтому тест не
-    показывает, что динамическое ядро само компилирует эти опкоды; в апстрим не отправлять, пока
-    прогон не покажет разницу.
+  - Ветка `dynx86-strict-prefix` (поверх `master`; действует вместе с шагом 1): правка декодера
+    `core_dyn_x86` — опкоды MMX с префиксом 66/F2/F3 уходят в обычное ядро. **Проверено** на 32-битной
+    сборке с `core=dynamic_x86`: с одним шагом 1 динамическое ядро всё ещё исполняет 13 из 34 строк
+    как MMX (прогон https://github.com/unxed/sandbox/actions/runs/39634872976), с правкой проходят все
+    34 (https://github.com/unxed/sandbox/actions/runs/39634899360). Первые тесты этого не показывали
+    по двум причинам: при двух динамических ядрах `core=dynamic` выбирает `dynrec`, а `ud.asm`
+    копирует инструкцию в буфер на странице кода, и такую страницу динамическое ядро отдаёт обычному.
+    Ссылка для PR (вместе с шагом 1):
+    https://github.com/joncampbell123/dosbox-x/compare/master...unxed:dosbox-x:dynx86-strict-prefix?expand=1
+  - Ветка `sse2-pentium4` (поверх шага 5; необязательная): `cputype=pentium_4` — CPUID.1 EAX=0x0F24
+    (семейство 15, модель 2), SSE2 и CLFLUSH без опции `enable sse2`. Прогон
+    https://github.com/unxed/sandbox/actions/runs/39635551026: все наборы тестов проходят при выключенной
+    `enable sse2`. Новая личность процессора — решение сопровождающего, поэтому отдельной веткой, которую
+    можно не брать:
+    https://github.com/joncampbell123/dosbox-x/compare/master...unxed:dosbox-x:sse2-pentium4?expand=1
+  - Сознательно не сделано: флаги исключений MXCSR и #XM, дизассемблер отладчика.
   - **Проверка настоящей программой (2026-10-21):** Far 3.0.6745.5025 x86 под HX. На DOSBox-X из apt
     он падает в `sqlite3.dll` на `66 0F 13` (`MOVLPD`, «exception C000001D»; прогон
     https://github.com/unxed/sandbox/actions/runs/39633729020). На DOSBox-X из ветки `sse2-rest` с
@@ -346,7 +355,7 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
 | HX | дескрипторы каталогов и `NtQueryDirectoryFile`; `GetModuleHandle("ntdll")`; `RtlNtStatusToDosError`, `RtlGetLastNtStatus`, `NtClose` | в `far-stand` (`NTDIR.ASM`); PR — с тестом |
 | HX | отладочная сборка DUSER32 (`KEYBOARD.ASM(411)`) | найдено, не начато |
 | HX | `CP_ACP`/`CP_OEMCP`, консольные W-функции, файловые W-функции через `DOS-UTF8/NAMES`, буфер обмена через WinOldAp/`DOS-UTF8/CLIPBRD` (H4–H7) | не начато |
-| DOSBox-X | строгие префиксы MMX (#UD вместо молчаливой порчи), затем SSE2 по шагам: каркас и `cputype`, скалярный/упакованный double, целочисленный XMM, остаток и бит CPUID | шаги 1–5 готовы и проверены в ветках `mmx-strict-prefix`, `sse2-skeleton`, `sse2-double`, `sse2-int`, `sse2-rest` форка; PR отправляет владелец; `dynamic_x86` и `cputype` — см. выше |
+| DOSBox-X | строгие префиксы MMX (#UD вместо молчаливой порчи), затем SSE2 по шагам: каркас и `cputype`, скалярный/упакованный double, целочисленный XMM, остаток и бит CPUID | шаги 1–5 готовы и проверены в ветках `mmx-strict-prefix`, `sse2-skeleton`, `sse2-double`, `sse2-int`, `sse2-rest` форка (плюс `dynx86-strict-prefix` и необязательная `sse2-pentium4`); PR отправляет владелец |
 | Far | то, без чего официальная сборка не работает поверх ванильного HX и что Far может сделать сам (см. 7.2): брать API, которых нет в HX, через `GetProcAddress` с запасным путём, как Far уже делает для API новых Windows; возможно — сборка x86 без SSE2 | решить по данным стенда |
 | DOSLFN | `DOS-UTF8/NAMES` | adoxa/doslfn#2, ответа нет |
 
