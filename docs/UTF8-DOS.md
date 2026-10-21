@@ -50,7 +50,7 @@ DOS-программа видит имена файлов и текст буфе
 | go2dos | да | да | этот репозиторий |
 | DOSBox-X | да (`utf8 file names`) | да (при `dos clipboard api=true`; хосты SDL2 и Windows) | https://github.com/joncampbell123/dosbox-x/pull/6632 — влит 2026-10-05; заменил закрытый https://github.com/joncampbell123/dosbox-x/pull/6631 (только буфер) |
 | DOSLFN | — | — | предложено: https://github.com/adoxa/doslfn/issues/2 (§4.1) |
-| HX DOS Extender (Win32-слой) | — | — | предложено: https://github.com/Baron-von-Riedesel/HX/issues/75 (§4.2); PR 1 (`CP_UTF8`) готов, план до Far — §7 |
+| HX DOS Extender (Win32-слой) | — | — | предложено: https://github.com/Baron-von-Riedesel/HX/issues/75; первый PR (`CP_UTF8`) — https://github.com/Baron-von-Riedesel/HX/pull/76, открыт (§4.2); план до Far — §7 |
 | TSR буфера обмена VirtualBox (VBCLIP) | — | — | идея; автор vbados отказался включать её в vbados (§4.3) |
 
 **Клиенты** (**установлено** по исходникам, если не сказано иное):
@@ -94,9 +94,37 @@ https://github.com/Baron-von-Riedesel/HX/issues/75, открыт 2026-10-09. П�
 
 Ответ Japheth (2026-10-14): сейчас занят другим; сам он этого делать не стал бы («I'd do that
 not at all»); код, написанный с ИИ, «may be acceptable if the source of the AI contribution is made
-clear». Черновик нашего ответа лежит вне репозитория. Неясно, примет ли он PR вообще или
-предпочитает, чтобы работа шла в форке. Это и спрашивает черновик, заодно с вопросом о
-распространении изменённого HX (HX-RESEARCH §5).
+clear».
+
+Наш ответ (2026-10-21, https://github.com/Baron-von-Riedesel/HX/issues/75#issuecomment-6316628652):
+работа пойдёт маленькими самостоятельными PR в порядке (1)–(3), их можно смотреть и вливать
+по отдельности или остановиться на любом; модели и инструменты будут указаны. Вопрос о
+распространении изменённого HX (HX-RESEARCH §5) в ответ не вошёл и остаётся открытым.
+
+**PR в HX** (состояние на 2026-10-21):
+
+| PR | Что | Ветка `unxed/HX` | Состояние |
+|---|---|---|---|
+| https://github.com/Baron-von-Riedesel/HX/pull/76 | `CP_UTF8` в `MultiByteToWideChar`, `WideCharToMultiByte`, `GetCPInfo` (половина пункта (1); `CP_ACP`/`CP_OEMCP` — отдельным PR) | `dkrnl32-cp-utf8`, один коммит `f67e0ad` поверх `master` `f2276db` | открыт 2026-10-21 (отправил владелец), без конфликтов; ревью нет; своего CI в HX нет |
+
+Как устроены PR (правила Лунобота, `modules/merge.md`, «PR, который владелец отправляет сам»):
+- в каждой ветке ровно один коммит поверх `master` upstream; его заголовок и тело — название и
+  описание PR;
+- автор коммита — `Лунобот-1 <lunobot@users.noreply.github.com>`, в коммите есть `Assisted-by` и
+  `Co-Authored-By`;
+- в описании — раскрытие ИИ (модель, инструкция Лунобота, проект go2dos) и подпись;
+- ветку под открытым PR без слова владельца не трогаем.
+
+Проверка — в `unxed/sandbox`, а не в HX:
+- `hx-utf8.yml`: дифференциальный тест против kernel32 Windows (`hx-utf8/README.md`), для #76 —
+  1030 случаев, 0 расхождений; на upstream `master` — 635;
+- `hx-far.yml`: импорты Far против экспортов HX (§7).
+
+**Следующий PR в HX — после реакции автора на #76.** Автор занят и сам этим заниматься не
+будет, так что первый PR заодно проверяет, примет ли он такую работу вообще. Правки по ревью
+#76 нужно учесть в следующих PR. Следующий по плану (`CP_ACP`/`CP_OEMCP`, §7 H4) меняет тот же
+файл `WC2MB.ASM`: до вливания #76 его пришлось бы делать стопкой, и в нём было бы видно
+изменение из #76. Пока ждём, работа идёт на нашей стороне: стенд §7 H2.
 
 ### 4.3. vbados — письмо Javier (автору vbados)
 
@@ -159,7 +187,7 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
    провайдера (`DOS-EXTENSIONS.md` §14); `UTF8NAMES.md` исправлен с «draft 0.1» на «draft 1.0».
 3. Поведение для процессов без режима UTF-8 у go2dos и DOSBox-X разное (§2). Описать ли в спеке
    рекомендуемое поведение?
-4. Ответы: DOSLFN (тишина с 2026-10-09), HX (черновик ответа), vbados (черновик ответа), tvision
+4. Ответы: DOSLFN (тишина с 2026-10-09), HX (наш ответ опубликован, PR #76 ждёт ревью), vbados (черновик ответа), tvision
    PR 241 (ждём ревью).
 5. CLIPBRD 1.1: согласовать, реализовать в go2dos, затем решать про VBCLIP.
 6. Far под HX — план §7.
@@ -174,8 +202,9 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
 Что уже есть:
 
 - DOSBox-X: LFN, `DOS-UTF8/NAMES`, `DOS-UTF8/CLIPBRD` (PR 6632). Со стороны DOS всё готово.
-- HX, PR 1 (`CP_UTF8` в `MultiByteToWideChar`/`WideCharToMultiByte`/`GetCPInfo`): ветка
-  `dkrnl32-cp-utf8` в `unxed/HX`, один коммит поверх `master`. Тест сверяет 1030 случаев с
+- HX, PR 1 (`CP_UTF8` в `MultiByteToWideChar`/`WideCharToMultiByte`/`GetCPInfo`):
+  https://github.com/Baron-von-Riedesel/HX/pull/76 (ветка `dkrnl32-cp-utf8` в `unxed/HX`, один
+  коммит поверх `master`). Тест сверяет 1030 случаев с
   kernel32 Windows, все совпадают (https://github.com/unxed/sandbox/tree/main/hx-utf8,
   прогон https://github.com/unxed/sandbox/actions/runs/39606180465; upstream `master` на том же
   тесте: 635 расхождений).
@@ -199,7 +228,7 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
 
 | # | Шаг | Состояние |
 |---|---|---|
-| H1 | `CP_UTF8` в DKRNL32 | готов, ждёт отправки в HX |
+| H1 | `CP_UTF8` в DKRNL32 | отправлен: https://github.com/Baron-von-Riedesel/HX/pull/76, ждёт ревью |
 | H2 | Стенд в CI: DOSBox-X + HX (HXRT) + Far 3 x86, скриншоты (vmlab или DOSBox-X без окна); сначала с `DPMILDR=128`, чтобы увидеть, где Far останавливается | не начат |
 | H3 | Заглушки для 8 DLL и 69 функций, которых не хватает `Far.exe`: отвечают «не поддерживается», как остальные заглушки HX. Сначала то, что Far вызывает при старте (по стенду H2) | не начат |
 | H4 | `CP_ACP`/`CP_OEMCP` через таблицу текущей кодовой страницы DOS (`INT 21h AX=6601h`) | не начат |
