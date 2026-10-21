@@ -285,9 +285,17 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
     (по умолчанию ничего не меняется) и https://github.com/unxed/sandbox/actions/runs/39624091997
     (`enable sse2`, бит 26 = 1). PR — после слияния шага 1:
     https://github.com/joncampbell123/dosbox-x/compare/master...unxed:dosbox-x:sse2-skeleton?expand=1
-  - Дальше (отдельные PR): шаг 3 — скалярный и упакованный double и пересылки (`MOVLPD`, `MOVSD`,
-    `ADDSD`, `CVT*` …; для Far 3 и sqlite3 этого достаточно), шаг 4 — целочисленный XMM, шаг 5 —
-    остаток и `cputype`; `dynamic_x86` — только для 32-битных сборок, не проверялось. Подробнее —
+  - Шаг 3, ветка `sse2-double` (один коммит поверх шага 2): double с префиксами 66 (упакованные) и
+    F2 (скалярные): `MOVUPD/MOVAPD/MOVSD/MOVLPD/MOVHPD/MOVNTPD`, `UNPCK[LH]PD`, `SHUFPD`,
+    `MOVMSKPD`, `AND/ANDN/OR/XORPD`, `ADD/SUB/MUL/DIV/SQRT/MIN/MAX` (PD и SD), `COMISD/UCOMISD`,
+    `CMPPD/CMPSD`, `CVTSI2SD`, `CVTTSD2SI`, `CVTSD2SI` (с учётом `MXCSR.RC`), `CVTSS2SD`, `CVTSD2SS`,
+    `CVTPS2PD`, `CVTPD2PS`. Прогон https://github.com/unxed/sandbox/actions/runs/39625343645:
+    58 из 58 проверок результатов (в том числе правила NaN для MIN/MAX/CMP и «целое неопределённое»)
+    и 34 из 34 проверок на #UD. Не сделаны флаги исключений MXCSR и #XM. Ссылка для PR (после шага 2):
+    https://github.com/joncampbell123/dosbox-x/compare/master...unxed:dosbox-x:sse2-double?expand=1
+  - Дальше (отдельные PR): шаг 4 — целочисленный XMM (`MOVDQA/MOVDQU`, `PXOR`, `PSHUFD`, `PUNPCK*`,
+    `PADDQ`, сдвиги …; нужен Far 3 и `memcpy`/`strlen` из библиотек MSVC), шаг 5 — остаток и
+    `cputype`; `dynamic_x86` — только для 32-битных сборок, не проверялось. Подробнее —
     `unxed/sandbox`, `dosbox-x-sse2/README.md`.
 - Отладочная сборка DUSER32 (`nmake DEBUG=1`) в исходном HX не собирается:
   `KEYBOARD.ASM(411): Operands must be the same size` — ошибка самого HX, кандидат в PR.
@@ -313,7 +321,7 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
 | HX | дескрипторы каталогов и `NtQueryDirectoryFile`; `GetModuleHandle("ntdll")`; `RtlNtStatusToDosError`, `RtlGetLastNtStatus`, `NtClose` | в `far-stand` (`NTDIR.ASM`); PR — с тестом |
 | HX | отладочная сборка DUSER32 (`KEYBOARD.ASM(411)`) | найдено, не начато |
 | HX | `CP_ACP`/`CP_OEMCP`, консольные W-функции, файловые W-функции через `DOS-UTF8/NAMES`, буфер обмена через WinOldAp/`DOS-UTF8/CLIPBRD` (H4–H7) | не начато |
-| DOSBox-X | строгие префиксы MMX (#UD вместо молчаливой порчи), затем SSE2 по шагам: каркас и `cputype`, скалярный/упакованный double, целочисленный XMM, остаток и бит CPUID | шаги 1 и 2 готовы и проверены в ветках `mmx-strict-prefix`, `sse2-skeleton` форка; PR отправляет владелец; шаги 3–5 не начаты |
+| DOSBox-X | строгие префиксы MMX (#UD вместо молчаливой порчи), затем SSE2 по шагам: каркас и `cputype`, скалярный/упакованный double, целочисленный XMM, остаток и бит CPUID | шаги 1–3 готовы и проверены в ветках `mmx-strict-prefix`, `sse2-skeleton`, `sse2-double` форка; PR отправляет владелец; шаги 4–5 не начаты |
 | Far | то, без чего официальная сборка не работает поверх ванильного HX и что Far может сделать сам (см. 7.2): брать API, которых нет в HX, через `GetProcAddress` с запасным путём, как Far уже делает для API новых Windows; возможно — сборка x86 без SSE2 | решить по данным стенда |
 | DOSLFN | `DOS-UTF8/NAMES` | adoxa/doslfn#2, ответа нет |
 
