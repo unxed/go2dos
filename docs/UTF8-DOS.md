@@ -312,9 +312,16 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
     `C_DYNAMIC_X86`) с `core=dynamic` даёт тот же результат с правкой и без неё, поэтому тест не
     показывает, что динамическое ядро само компилирует эти опкоды; в апстрим не отправлять, пока
     прогон не покажет разницу.
-  - Следующий шаг по цели: проверить настоящей программой (Far 3 x86 под HX в DOSBox-X с
-    `enable sse2`) — стенд `hx-far-run.yml` пока берёт DOSBox-X из apt, нужен DOSBox-X из ветки
-    `sse2-rest`, собранный в CI. Подробнее — `unxed/sandbox`, `dosbox-x-sse2/README.md`.
+  - **Проверка настоящей программой (2026-10-21):** Far 3.0.6745.5025 x86 под HX. На DOSBox-X из apt
+    он падает в `sqlite3.dll` на `66 0F 13` (`MOVLPD`, «exception C000001D»; прогон
+    https://github.com/unxed/sandbox/actions/runs/39633729020). На DOSBox-X из ветки `sse2-rest` с
+    `enable sse2` эта инструкция выполняется и Far идёт дальше (прогон
+    https://github.com/unxed/sandbox/actions/runs/39633326778): он останавливается на «exception C0000005
+    at 7000982E», когда загрузчик не находит `api-ms-win-core-synch-l1-2-0`, `api-ms-win-core-fibers-l1-1-1/2`,
+    `api-ms-win-core-localization-l1-2-1` и `kernelbase`. Это пробел в эмуляции Win32 в HX, не в CPU:
+    дальше по плану (H3) для Far 3. Стенд умеет брать собранный DOSBox-X
+    (`hx-far-run.yml -f dosbox_run=<run dosbox-x-test> -f sse2=true`).
+    Подробнее — `unxed/sandbox`, `dosbox-x-sse2/README.md`, `hx-far/README.md`.
 - Отладочная сборка DUSER32 (`nmake DEBUG=1`) в исходном HX не собирается:
   `KEYBOARD.ASM(411): Operands must be the same size` — ошибка самого HX, кандидат в PR.
 - **SSE2 в DOSBox-X** (оценка по исходникам, 2026-10-21): реально, средний объём. XMM-регистры, MXCSR,
