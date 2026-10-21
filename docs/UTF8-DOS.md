@@ -229,7 +229,7 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
 | # | Шаг | Состояние |
 |---|---|---|
 | H1 | `CP_UTF8` в DKRNL32 | отправлен: https://github.com/Baron-von-Riedesel/HX/pull/76, ждёт ревью |
-| H2 | Стенд в CI: DOSBox-X + HX (HXRT) + Far x86, скриншоты; сначала с `DPMILDR=128`, чтобы увидеть, где Far останавливается | сделан (`unxed/sandbox`: `hx-far-run.yml`), результаты ниже |
+| H2 | Стенд в CI: DOSBox-X + HX (HXRT) + Far x86, скриншоты; сначала с `DPMILDR=128`, чтобы увидеть, где Far останавливается | сделан (`unxed/sandbox`: `hx-far-run.yml`); Far 2 показывает панели с веткой `far-stand` |
 | H3 | Заглушки для недостающих DLL и функций: отвечают «не поддерживается», как остальные заглушки HX. Сначала то, что Far вызывает при старте (по стенду H2) | начат: ветка `far-stand` в `unxed/HX`, 25 функций DKRNL32 для Far 2 |
 | H4 | `CP_ACP`/`CP_OEMCP` через таблицу текущей кодовой страницы DOS (`INT 21h AX=6601h`) | не начат |
 | H5 | Консоль: `WriteConsoleOutputW`, `WriteConsoleW`, `ReadConsoleInputW` (поле `UnicodeChar`), `SetConsoleOutputCP(65001)` — через OEM-страницу | не начат |
@@ -259,6 +259,13 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
   журналом DKRNL32 (`DKRNLLOG`): Far открывает файлы как `\\?\c:\FAR\...`, а DKRNL32 передаёт
   префикс длинного пути `\\?\` в DOS, и DOS отвечает «путь не найден». В `far-stand` префикс
   снимается в `ConvertWStr` (общий путь всех W-функций); проверка идёт.
+- **Far 2 работает под HX в DOSBox-X (2026-10-21):** панели открыты, каталог прочитан
+  (скриншот: https://github.com/unxed/sandbox/blob/main/hx-far/far2-panels-2026-10-21.png). Для
+  этого в `far-stand` добавлено ещё: `CreateFile` каталога с `FILE_FLAG_BACKUP_SEMANTICS` даёт объект
+  «каталог», `NtQueryDirectoryFile` (`FileBothDirectoryInformation`) перечисляет его через
+  `FindFirstFileA`/`FindNextFileA` (`NTDIR.ASM`; Far 2 и Far 3 перечисляют каталоги только так),
+  `GetModuleHandle("ntdll")` даёт DKRNL32, добавлены `RtlNtStatusToDosError`, `RtlGetLastNtStatus`,
+  `NtClose`. Это тоже кандидаты в апстрим HX (7.1).
 - Отладочная сборка DUSER32 (`nmake DEBUG=1`) в исходном HX не собирается:
   `KEYBOARD.ASM(411): Operands must be the same size` — ошибка самого HX, кандидат в PR.
 - **SSE2 в DOSBox-X** (оценка по исходникам, 2026-10-21): реально, средний объём. XMM-регистры, MXCSR,
@@ -279,6 +286,7 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
 | HX | `CP_UTF8` | Baron-von-Riedesel/HX#76, ждёт ревью |
 | HX | недостающие функции DKRNL32/DUSER32 (а потом DADVAPI, SHELL32, MPR, OLE32), которые нужны Far: каждая — либо через уже имеющиеся функции, либо честная заглушка | готовы в `far-stand` (30 функций); разбить на PR по файлам после реакции на #76 |
 | HX | префикс `\\?\` в путях W- (и A-) функций | в `far-stand`; PR — с тестом |
+| HX | дескрипторы каталогов и `NtQueryDirectoryFile`; `GetModuleHandle("ntdll")`; `RtlNtStatusToDosError`, `RtlGetLastNtStatus`, `NtClose` | в `far-stand` (`NTDIR.ASM`); PR — с тестом |
 | HX | отладочная сборка DUSER32 (`KEYBOARD.ASM(411)`) | найдено, не начато |
 | HX | `CP_ACP`/`CP_OEMCP`, консольные W-функции, файловые W-функции через `DOS-UTF8/NAMES`, буфер обмена через WinOldAp/`DOS-UTF8/CLIPBRD` (H4–H7) | не начато |
 | DOSBox-X | строгие префиксы MMX (#UD вместо молчаливой порчи), затем SSE2 по шагам: каркас и `cputype`, скалярный/упакованный double, целочисленный XMM, остаток и бит CPUID | не начато |
