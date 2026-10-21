@@ -195,7 +195,7 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
 ## 7. Цель: Unicode-версия Far Manager под HX в DOSBox-X
 
 Цель владельца: Far 2.x или 3.x (Unicode) под HX в DOSBox-X, с длинными именами в UTF-8 и буфером
-обмена хоста в UTF-8.
+обмена хоста в UTF-8. Учёт хода работы — тикет https://github.com/unxed/go2dos/issues/70.
 
 **PR из HX#75 для этого нужны, но их мало** (состояние на 2026-10-21).
 
@@ -229,14 +229,30 @@ DOS-окне Windows». Norton Desktop 1.0 и утилиты Norton Commander п
 | # | Шаг | Состояние |
 |---|---|---|
 | H1 | `CP_UTF8` в DKRNL32 | отправлен: https://github.com/Baron-von-Riedesel/HX/pull/76, ждёт ревью |
-| H2 | Стенд в CI: DOSBox-X + HX (HXRT) + Far 3 x86, скриншоты (vmlab или DOSBox-X без окна); сначала с `DPMILDR=128`, чтобы увидеть, где Far останавливается | не начат |
-| H3 | Заглушки для 8 DLL и 69 функций, которых не хватает `Far.exe`: отвечают «не поддерживается», как остальные заглушки HX. Сначала то, что Far вызывает при старте (по стенду H2) | не начат |
+| H2 | Стенд в CI: DOSBox-X + HX (HXRT) + Far x86, скриншоты; сначала с `DPMILDR=128`, чтобы увидеть, где Far останавливается | сделан (`unxed/sandbox`: `hx-far-run.yml`), результаты ниже |
+| H3 | Заглушки для недостающих DLL и функций: отвечают «не поддерживается», как остальные заглушки HX. Сначала то, что Far вызывает при старте (по стенду H2) | начат: ветка `far-stand` в `unxed/HX`, 25 функций DKRNL32 для Far 2 |
 | H4 | `CP_ACP`/`CP_OEMCP` через таблицу текущей кодовой страницы DOS (`INT 21h AX=6601h`) | не начат |
 | H5 | Консоль: `WriteConsoleOutputW`, `WriteConsoleW`, `ReadConsoleInputW` (поле `UnicodeChar`), `SetConsoleOutputCP(65001)` — через OEM-страницу | не начат |
 | H6 | Файловые `...W`-функции через `DOS-UTF8/NAMES`: точка вставки — `ConvertWStr`/`ConvW2A` (HX-RESEARCH §1) | не начат |
 | H7 | Буфер обмена DUSER32 через WinOldAp и `DOS-UTF8/CLIPBRD` (`CF_UNICODETEXT` ↔ UTF-8); вызовы через DPMI 0300h с буфером в нижней памяти (HX-RESEARCH §2) | не начат |
 | H8 | Проверка на стенде: имя вне CP866 видно и открывается, копирование и вставка с хостом работают | не начат |
 | H9 | Far 2.x: разобрать импорты так же (`hx-far.yml -f far=<URL>`). Сайт farmanager.com закрыт от ботов (Anubis), нужен другой источник дистрибутива | не начат |
+
+**Стенд (2026-10-21, установлено прогонами `hx-far-run.yml`).** Ubuntu, Xvfb, DOSBox-X 2024.03.01
+из apt, рантайм HX v2.23. Недостающие системные DLL заменены пустыми заглушками, `DPMILDR=128`.
+
+- **Far 3.0.6745.5025 x86** загружается, но останавливается в `sqlite3.dll` на инструкции SSE2
+  `66 0F 13` (MOVLPD), исключение C000001D. В DOSBox-X нет SSE2: `cputype` доходит только до
+  `pentium_iii`, где есть лишь SSE. С `pentium_iii` SSE (`xorps`) проходит, SSE2 — нет; с
+  `experimental` то же самое. Официальную сборку Far 3 x86 DOSBox-X не исполнит. Пути обхода:
+  добавить SSE2 в DOSBox-X (идёт оценка), собрать Far 3 x86 без SSE2 (`/arch:IA32`), взять Far 2.
+- **Far 2.0 build 1807 x86** (из архива archive.org; официально — `farmanager.com/history/`) SSE2
+  не требует. Он останавливается на первой отсутствующей функции `GetProcessHeaps` (вызов найден
+  `where.py` по адресу возврата). Для Far 2 недостаёт 4 DLL (`psapi`, `secur32`, `setupapi`,
+  `winspool.drv`) и 42 функций у `Far.exe`. Ветка `far-stand` добавляет 25 функций DKRNL32;
+  проверка идёт.
+- Сборка DLL HX в CI работает (`hx-build.yml`: nmake, JWasm 2.20, JWlink 2.0; `master` собирается
+  без изменений). Стенд подставляет собранные DLL (`-f hxbuild=<run id>`).
 
 Риски:
 
