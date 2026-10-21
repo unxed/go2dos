@@ -1,8 +1,11 @@
 name: CI
 
+# A change of documentation only (*.md) does not run the tests.
 on:
   push:
+    paths-ignore: ['**.md']
   pull_request:
+    paths-ignore: ['**.md']
 
 jobs:
   test:
