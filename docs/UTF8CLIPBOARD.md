@@ -5,6 +5,9 @@ Status: implemented in go2dos (`dos/utf8clip.go`; tests `machine/utf8clip_test.g
 a per-process opt-in found through AMIS. The goal is an extension small enough for any DOS
 environment that has a clipboard server (the WinOldAp `INT 2Fh AH=17h` of Windows 3.x/9x and of the
 emulators that copy it: go2dos, DOSBox-X) and for the programs that use it, without rewriting either.
+Version 1.0 is also implemented in DOSBox-X (https://github.com/joncampbell123/dosbox-x/pull/6632).
+The section "Version 1.1 (proposal)" at the end is a proposal: no provider implements it yet. The
+project as a whole (who implements what, open questions): [UTF8-DOS.md](UTF8-DOS.md) (in Russian).
 
 ## Problem
 
@@ -72,3 +75,71 @@ Everything else (the screen, the keyboard, the environment) stays in the OEM cod
   UTF-8) has the same duty as for the names: the setting belongs to the process whose PSP is current.
 - A provider must implement the AMIS installation check and the AMIS functions it is required to
   support (the same dispatcher as for the other providers).
+
+## Version 1.1 (proposal): the clipboard without WinOldAp
+
+Status: proposal, not implemented. Nothing in this section may be relied on until a provider
+implements it.
+
+### Problem
+
+An answer to `INT 2Fh AX=1700h` tells a program more than "there is a clipboard": it says "you run
+in a DOS box of Windows 3.x/9x". Some programs change behaviour on it. Norton Desktop 1.0 and the
+tools of Norton Commander turn off their own character set and the graphic mouse cursor
+(https://github.com/joncampbell123/dosbox-x/issues/5025). DOSBox-X keeps a list of program names
+that get no answer to 1700h, and its maintainer asked in that issue whether the clipboard could be
+offered "in a way that doesn't make DOS programs think they're running under Windows". A clipboard
+driver for real DOS (a TSR: for example, the shared clipboard of VirtualBox) would cause the same side
+effect in every program, including the ones that never use the clipboard. That is the main
+objection to such a driver.
+
+### Design
+
+The provider `DOS-UTF8/CLIPBRD` of version 1.1 (CX = 0101h) also accepts the clipboard calls
+themselves, so that `INT 2Fh` is no longer the only way to reach the clipboard.
+
+**AL = 20h + n, n = 00h..0Fh: clipboard call.** The same as `INT 2Fh AX = 1700h + n`: the same input
+registers (DX = format, ES:BX = buffer, SI:CX = size), the same results (AX, DX:AX). Both ways lead to
+the same state (one clipboard, one "open" flag) and use the same encoding (AL = 10h), so a call
+through `INT 2Dh` and a call through `INT 2Fh` are the same call. Version 1.1 defines 20h (version, AX
+as 1700h returns it), 21h (open), 22h (empty), 23h (set data), 24h (size), 25h (get data),
+28h (close), 29h (compact). A number of the range that the server does not implement returns
+AX = 0 and changes nothing.
+
+**`INT 2Fh AH=17h` becomes optional.** A server of version 1.1 may leave `INT 2Fh AH=17h` unanswered
+(a quiet server). Programs that look for Windows then find nothing, and programs that know this
+provider still have the clipboard. Recommended defaults:
+
+- emulators that already answer 1700h (go2dos, DOSBox-X) keep answering it: clients of
+  version 1.0, GNU Emacs and 4DOS still work;
+- a new driver for real DOS (a TSR) is quiet by default and answers `INT 2Fh` only when this is
+  switched on.
+
+The rule of 1.0 "the provider exists only where the clipboard server exists" becomes "the provider
+exists only where a clipboard exists". A client of 1.0 checks only the major version (CH = 1), so it
+still finds the provider; against a quiet server it finds no WinOldAp and goes on without a
+clipboard, as it would without Windows.
+
+### Client checklist (1.1)
+
+1. Find `DOS-UTF8/CLIPBRD`. If it is there and CX >= 0101h, call AL = 10h with BX = 65001 and make
+   every clipboard call through `INT 2Dh` (AH = the multiplex number, AL = 20h + n). Do not call
+   1700h.
+2. If it is there with version 1.0: call AL = 10h, then use `INT 2Fh AH=17h` as in the 1.0 checklist.
+3. If it is not there: `INT 2Fh AX=1700h`; any change of AX means WinOldAp, with text in the OEM
+   code page.
+
+For an existing WinOldAp client the change is in one place, the routine that does
+`mov ax,17xxh` / `int 2Fh`: it becomes `mov ah,[mux]` / `mov al,20h+xx` / `int 2Dh`.
+
+Protected mode clients (DPMI: DJGPP, HX): ES:BX is a real mode address, as for WinOldAp. Call
+`INT 2Dh` through DPMI function 0300h (simulate a real mode interrupt) with the buffer in
+conventional memory.
+
+### Left out on purpose
+
+- A new format number for UTF-8 or UTF-16 (`CF_UNICODETEXT`): see point 5 of the 1.0 semantics.
+- A device (`CLIP$` of DOSBox-X): ordinary file I/O, but no size and no way to say the encoding.
+- A new number on `INT 2Fh`: collisions are the problem AMIS exists to solve.
+- A change counter (as `GetClipboardSequenceNumber` of Win32): left for a later minor version,
+  when there is a client that needs it.

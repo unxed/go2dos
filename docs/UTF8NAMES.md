@@ -1,9 +1,12 @@
-# UTF-8 file names for DOS programs (draft 0.1)
+# UTF-8 file names for DOS programs (draft 1.0)
 
-Status: draft; implemented in go2dos (`dos/utf8names.go`). Comments welcome. The goal is an
+Status: implemented in go2dos (`dos/utf8names.go`). Comments welcome. The goal is an
 extension small enough to be added to any DOS that has the long file name
 (LFN) API — emulators with host file systems (go2dos, DOSBox-X), DOSLFN on
 FreeDOS or MS-DOS — and to LFN-aware programs, without rewriting either.
+Also implemented in DOSBox-X (https://github.com/joncampbell123/dosbox-x/pull/6632);
+proposed for DOSLFN (https://github.com/adoxa/doslfn/issues/2). The project as a
+whole: [UTF8-DOS.md](UTF8-DOS.md) (in Russian).
 
 ## Problem
 

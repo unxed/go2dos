@@ -101,6 +101,14 @@ not shrink them after trailing blanks are cut). Any other function of `AH=17h`
 stops the machine ("not supported"). All of this is per machine: there is one
 clipboard and one "open" flag.
 
+Side effect: an answer to 1700h also tells a program that it runs in a DOS box of
+Windows, and some programs change behaviour on it (Norton Desktop and the Norton
+Commander tools turn off their own font and the graphic mouse cursor:
+https://github.com/joncampbell123/dosbox-x/issues/5025). Version 1.1 of
+`DOS-UTF8/CLIPBRD` (a proposal, [UTF8CLIPBOARD.md](UTF8CLIPBOARD.md)) gives the
+clipboard through AMIS so that a server may leave 1700h unanswered; go2dos does not
+implement it yet. Overview of the UTF-8 work: [UTF8-DOS.md](UTF8-DOS.md) (in Russian).
+
 Host side (not a DOS interface): in the terminal front end the clipboard of the
 server is tied to the system clipboard (`-clip-sync auto|tool|osc52|off`, default
 `auto`, `cmd/go2dos/sysclip.go`): a write goes to `wl-copy`, `xclip`, `xsel` or
@@ -361,7 +369,10 @@ Without the file VC works as before.
 
 The AMIS version (§2) of a provider is the version of its interface; a client checks
 the major number (CH). A change that a client written for the earlier minor number
-cannot survive raises the major number. The WinOldAp server (§3) and the LFN
+cannot survive raises the major number. The number in the title of an interface
+document (`UTF8NAMES.md`, `UTF8CLIPBOARD.md`, `TEXTWIN.md`, `HOSTEXEC-API.md`) is this
+AMIS version; "draft" there means the interface may still change before it is frozen.
+A proposal for a later version is a separate, marked section of the same document. The WinOldAp server (§3) and the LFN
 functions (§4) are not ours to version: they follow the sources named there. The
 status words in §1 are the truth about `main`; the documents of the repository that
 were written before the code may still say "done in a branch", and the CI and the
